@@ -59,7 +59,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tauriScript: pnpm tauri
-          args: --target x86_64-pc-windows-msvc --bundles nsis,msi --ci -- --locked
+          args: --target x86_64-pc-windows-msvc --bundles nsis,msi --ci --verbose -- --locked
           tagName: v__VERSION__-build.${{ github.run_number }}.${{ github.run_attempt }}
           releaseName: 宜测安全监控 v__VERSION__ · Windows Build ${{ github.run_number }}.${{ github.run_attempt }}
           releaseBody: |
