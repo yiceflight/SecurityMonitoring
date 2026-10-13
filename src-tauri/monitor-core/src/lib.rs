@@ -87,6 +87,9 @@ pub trait Host: Send + Sync {
     fn write_event(&self, event: &AuditEvent) -> Result<()>;
     fn open_path(&self, path: &Path) -> Result<()>;
     fn register_event_source(&self) -> Result<()>;
+    fn session_context(&self) -> String {
+        "用户：不可用\n会话 ID：不可用".into()
+    }
 }
 
 pub fn native_host() -> std::sync::Arc<dyn Host> {

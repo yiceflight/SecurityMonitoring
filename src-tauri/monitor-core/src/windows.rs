@@ -29,6 +29,29 @@ use winreg::{enums::HKEY_CURRENT_USER, RegKey};
 pub struct WindowsHost;
 
 impl Host for WindowsHost {
+    fn session_context(&self) -> String {
+        use windows_sys::Win32::System::{
+            RemoteDesktop::ProcessIdToSessionId, WindowsProgramming::GetUserNameW,
+        };
+        let mut username = [0u16; 257];
+        let mut size = username.len() as u32;
+        let user = if unsafe { GetUserNameW(username.as_mut_ptr(), &mut size) } != 0 {
+            format!(
+                "{:?}",
+                String::from_utf16_lossy(&username[..size.saturating_sub(1) as usize])
+            )
+        } else {
+            format!("不可用（{}）", std::io::Error::last_os_error())
+        };
+        let mut session = 0;
+        let session = if unsafe { ProcessIdToSessionId(std::process::id(), &mut session) } != 0 {
+            session.to_string()
+        } else {
+            format!("不可用（{}）", std::io::Error::last_os_error())
+        };
+        format!("用户：{user}\n会话 ID：{session}")
+    }
+
     fn supported(&self) -> bool {
         true
     }
@@ -105,9 +128,12 @@ impl Host for WindowsHost {
                 std::io::Error::last_os_error()
             ));
         }
-        let text = wides(&format!("{} [{}]", event.message, event.created_at));
+        let text = wides(&format!(
+            "事件时间：{}\n{}",
+            event.created_at, event.message
+        ));
         let strings = [text.as_ptr()];
-        let event_type = if event.kind == "error" {
+        let event_type = if event.is_error() {
             EVENTLOG_ERROR_TYPE
         } else {
             EVENTLOG_INFORMATION_TYPE
@@ -117,7 +143,7 @@ impl Host for WindowsHost {
                 handle,
                 event_type,
                 0,
-                EVENT_ID,
+                event.event_id(),
                 ptr::null_mut(),
                 1,
                 0,
@@ -125,16 +151,15 @@ impl Host for WindowsHost {
                 ptr::null(),
             )
         } != 0;
+        // Capture the error before closing the handle, which may alter last-error.
+        let error = (!ok).then(std::io::Error::last_os_error);
         unsafe {
             DeregisterEventSource(handle);
         }
         if ok {
             Ok(())
         } else {
-            Err(format!(
-                "无法写入 Windows 事件日志：{}",
-                std::io::Error::last_os_error()
-            ))
+            Err(format!("无法写入 Windows 事件日志：{}", error.unwrap()))
         }
     }
 
@@ -314,7 +339,9 @@ fn capture_screen() -> Result<(Vec<u8>, u32, u32)> {
     let width = unsafe { GetSystemMetrics(SM_CXVIRTUALSCREEN) };
     let height = unsafe { GetSystemMetrics(SM_CYVIRTUALSCREEN) };
     if width <= 0 || height <= 0 {
-        return Err("无法读取 Windows 虚拟屏幕尺寸".into());
+        return Err(format!(
+            "阶段：采集；无法读取 Windows 虚拟屏幕尺寸：{width} × {height}"
+        ));
     }
     let pixel_count = (width as usize)
         .checked_mul(height as usize)
@@ -322,7 +349,7 @@ fn capture_screen() -> Result<(Vec<u8>, u32, u32)> {
         .ok_or("屏幕总分辨率超过 4000 万像素，无法安全分配截图缓冲区")?;
     let screen = unsafe { GetDC(ptr::null_mut()) };
     if screen.is_null() {
-        return Err("无法打开桌面设备上下文".into());
+        return Err("阶段：采集；GetDC 无法打开桌面设备上下文".into());
     }
     let memory = unsafe { CreateCompatibleDC(screen) };
     let bitmap = unsafe { CreateCompatibleBitmap(screen, width, height) };
@@ -340,11 +367,11 @@ fn capture_screen() -> Result<(Vec<u8>, u32, u32)> {
         unsafe {
             ReleaseDC(ptr::null_mut(), screen);
         }
-        return Err("无法创建截图缓冲区".into());
+        return Err(format!("阶段：采集；CreateCompatibleDC / CreateCompatibleBitmap 无法创建截图缓冲区；尺寸：{width} × {height}"));
     }
     let previous = unsafe { SelectObject(memory, bitmap as _) };
-    let copied = !previous.is_null()
-        && previous as isize != -1
+    let selected = !previous.is_null() && previous as isize != -1;
+    let copied = selected
         && unsafe {
             BitBlt(
                 memory,
@@ -358,6 +385,13 @@ fn capture_screen() -> Result<(Vec<u8>, u32, u32)> {
                 SRCCOPY | windows_sys::Win32::Graphics::Gdi::CAPTUREBLT,
             )
         } != 0;
+    let copy_error = if !selected {
+        Some("SelectObject 选择截图缓冲区失败".to_string())
+    } else if !copied {
+        Some(format!("BitBlt 失败：{}", std::io::Error::last_os_error()))
+    } else {
+        None
+    };
     // GetDIBits requires the bitmap to be deselected from every device context.
     unsafe {
         SelectObject(memory, previous);
@@ -390,13 +424,29 @@ fn capture_screen() -> Result<(Vec<u8>, u32, u32)> {
     } else {
         0
     };
+    let read_error = if copied && rows == 0 {
+        Some(format!(
+            "GetDIBits 失败：{}",
+            std::io::Error::last_os_error()
+        ))
+    } else {
+        None
+    };
     unsafe {
         DeleteObject(bitmap as _);
         DeleteDC(memory);
         ReleaseDC(ptr::null_mut(), screen);
     }
     if rows != height {
-        return Err("Windows 屏幕内容读取失败".into());
+        return Err(format!(
+            "阶段：采集；{}；尺寸：{} × {}；已读取行数：{}",
+            copy_error
+                .or(read_error)
+                .unwrap_or_else(|| "GetDIBits 未读取完整屏幕".into()),
+            width,
+            height,
+            rows
+        ));
     }
     let rgb: Vec<u8> = bgra
         .chunks_exact(4)
@@ -405,7 +455,7 @@ fn capture_screen() -> Result<(Vec<u8>, u32, u32)> {
     let mut jpeg = Cursor::new(Vec::new());
     JpegEncoder::new_with_quality(&mut jpeg, 82)
         .encode(&rgb, width as u32, height as u32, ColorType::Rgb8.into())
-        .map_err(|e| format!("JPEG 编码失败：{e}"))?;
+        .map_err(|e| format!("阶段：JPEG 编码；{e}"))?;
     Ok((jpeg.into_inner(), width as u32, height as u32))
 }
 

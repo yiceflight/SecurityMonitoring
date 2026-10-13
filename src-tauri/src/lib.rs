@@ -118,7 +118,8 @@ pub fn run() {
         .setup(|app| {
             let root = app.path().app_data_dir().map_err(|e| e.to_string())?;
             let monitor =
-                Monitor::new(root, monitor_core::native_host()).map_err(std::io::Error::other)?;
+                Monitor::new(root, monitor_core::native_host(), env!("CARGO_PKG_VERSION"))
+                    .map_err(std::io::Error::other)?;
             app.manage(Arc::clone(&monitor));
             setup_tray(app)?;
             if std::env::args().any(|arg| arg == "--background") {

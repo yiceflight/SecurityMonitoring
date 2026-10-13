@@ -7,7 +7,7 @@ const bridge = vi.hoisted(() => ({ invoke: vi.fn() }));
 vi.mock("@tauri-apps/api/core", () => ({ isTauri: () => true, invoke: bridge.invoke }));
 const capture = (time: string, id: string): CaptureRecord => ({
   id, capturedAt: `${time}+08:00`, width: 1920, height: 1080,
-  bytes: 100, windowTitle: `窗口 ${id}`, processName: "work.exe", idleSeconds: 0,
+  bytes: 100, md5: null, windowTitle: `窗口 ${id}`, processName: "work.exe", idleSeconds: 0,
 });
 let records: CaptureRecord[];
 const source = (id: string) => `data:image/jpeg;base64,${id}`;

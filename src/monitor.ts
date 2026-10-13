@@ -12,6 +12,7 @@ export interface CaptureRecord {
   width: number;
   height: number;
   bytes: number;
+  md5: string | null;
   windowTitle: string;
   processName: string;
   idleSeconds: number;

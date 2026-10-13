@@ -1,5 +1,6 @@
 use crate::{Captured, Result, Settings};
 use chrono::{Local, NaiveDate};
+use md5::{Digest, Md5};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::{
     fs::{self, File, OpenOptions},
@@ -15,6 +16,9 @@ pub struct CaptureRecord {
     pub width: u32,
     pub height: u32,
     pub bytes: u64,
+    /// Older records did not store a digest; do not invent one on read.
+    #[serde(default)]
+    pub md5: Option<String>,
     pub window_title: String,
     pub process_name: String,
     pub idle_seconds: u32,
@@ -26,6 +30,33 @@ pub struct AuditEvent {
     pub created_at: String,
     pub kind: String,
     pub message: String,
+}
+
+impl AuditEvent {
+    pub fn event_id(&self) -> u32 {
+        match self.kind.as_str() {
+            "startup" => 1001,
+            "shutdown" => 1002,
+            "started" => 1003,
+            "stopped" => 1004,
+            "settings" => 1005,
+            "captured" => 1100,
+            "capture_error" => 1101,
+            "skipped" => 1102,
+            "resumed" => 1103,
+            "retention" => 1200,
+            "cleanup_error" => 1201,
+            "error" => 1999,
+            _ => 1000,
+        }
+    }
+
+    pub fn is_error(&self) -> bool {
+        matches!(
+            self.kind.as_str(),
+            "error" | "capture_error" | "cleanup_error"
+        )
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -127,8 +158,11 @@ impl Storage {
     pub fn save_capture(&self, captured: Captured) -> Result<CaptureRecord> {
         let now = Local::now();
         let date = now.format("%Y-%m-%d").to_string();
-        let dir = self.day_dir(&date)?;
-        fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+        let dir = self
+            .day_dir(&date)
+            .map_err(|e| format!("阶段：准备截图目录；{e}"))?;
+        fs::create_dir_all(&dir)
+            .map_err(|e| format!("阶段：创建截图目录；路径：{}；{e}", dir.display()))?;
         let id = format!(
             "{}-{}",
             date,
@@ -143,15 +177,27 @@ impl Storage {
             width: captured.width,
             height: captured.height,
             bytes: captured.jpeg.len() as u64,
+            md5: Some(format!("{:x}", Md5::digest(&captured.jpeg))),
             window_title: captured.window_title,
             process_name: captured.process_name,
             idle_seconds: captured.idle_seconds,
         };
         let path = dir.join(format!("{id}.jpg"));
-        atomic_write(&path, &captured.jpeg)?;
-        if let Err(error) = append_line(&dir.join("captures.jsonl"), &record) {
-            let _ = fs::remove_file(path);
-            return Err(error);
+        atomic_write(&path, &captured.jpeg)
+            .map_err(|e| format!("阶段：保存图片；路径：{}；{e}", path.display()))?;
+        let index = dir.join("captures.jsonl");
+        if let Err(error) = append_line(&index, &record) {
+            let rollback = fs::remove_file(&path);
+            return Err(format!(
+                "阶段：写入索引；路径：{}；截图编号：{}；{}{}",
+                index.display(),
+                record.id,
+                error,
+                rollback
+                    .err()
+                    .map(|e| format!("；图片回滚删除失败：{}；{e}", path.display()))
+                    .unwrap_or_default()
+            ));
         }
         Ok(record)
     }
@@ -201,7 +247,11 @@ impl Storage {
         Ok(dates)
     }
 
-    pub fn prune(&self, retention_days: u32, mut on_deleted: impl FnMut(&Path)) -> Result<usize> {
+    pub fn prune(
+        &self,
+        retention_days: u32,
+        mut on_deleted: impl FnMut(&Path, u64),
+    ) -> Result<usize> {
         let cutoff = Local::now().date_naive()
             - chrono::Duration::days(i64::from(retention_days.saturating_sub(1)));
         let mut removed = 0;
@@ -215,8 +265,10 @@ impl Storage {
                     if path.extension().and_then(|v| v.to_str()) == Some("jpg")
                         && entry.file_type().map_err(|e| e.to_string())?.is_file()
                     {
-                        fs::remove_file(&path).map_err(|e| format!("清理过期截图失败：{e}"))?;
-                        on_deleted(&path);
+                        let bytes = entry.metadata().map_err(|e| e.to_string())?.len();
+                        fs::remove_file(&path)
+                            .map_err(|e| format!("清理过期截图失败：{}；{e}", path.display()))?;
+                        on_deleted(&path, bytes);
                     }
                 }
                 // Only date directories owned by this app; never follow symlinks.
@@ -231,7 +283,11 @@ impl Storage {
     /// Remove the oldest JPEGs until screenshot storage is within the configured limit.
     /// The capture index is rewritten together with each removed image so records cannot
     /// point at files that no longer exist.
-    pub fn prune_storage(&self, limit_mb: u64, mut on_deleted: impl FnMut(&Path)) -> Result<usize> {
+    pub fn prune_storage(
+        &self,
+        limit_mb: u64,
+        mut on_deleted: impl FnMut(&Path, u64, u64, u64),
+    ) -> Result<usize> {
         let limit = limit_mb
             .checked_mul(1024 * 1024)
             .ok_or("截图空间限制过大")?;
@@ -267,14 +323,17 @@ impl Storage {
                 .and_then(|v| v.to_str())
                 .ok_or("截图文件名无效")?
                 .to_string();
-            fs::remove_file(&path).map_err(|e| e.to_string())?;
-            on_deleted(&path);
+            fs::remove_file(&path)
+                .map_err(|e| format!("空间清理删除失败：{}；{e}", path.display()))?;
+            on_deleted(&path, bytes, total, total.saturating_sub(bytes));
             let index = self.day_dir(&date)?.join("captures.jsonl");
-            let records: Vec<CaptureRecord> = read_lines::<CaptureRecord>(&index)?
+            let records: Vec<CaptureRecord> = read_lines::<CaptureRecord>(&index)
+                .map_err(|e| format!("清理后读取索引失败：{}；{e}", index.display()))?
                 .into_iter()
                 .filter(|record: &CaptureRecord| record.id != id)
                 .collect();
-            rewrite_lines(&index, &records)?;
+            rewrite_lines(&index, &records)
+                .map_err(|e| format!("清理后更新索引失败：{}；{e}", index.display()))?;
             total = total.saturating_sub(bytes);
             removed += 1;
         }
@@ -409,6 +468,43 @@ mod tests {
     use super::*;
 
     #[test]
+    fn digest_matches_saved_bytes_and_survives_restart_with_legacy_records() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Storage::new(dir.path().to_owned()).unwrap();
+        let record = store
+            .save_capture(Captured {
+                jpeg: b"abc".to_vec(),
+                width: 10,
+                height: 20,
+                window_title: "窗口".into(),
+                process_name: "app.exe".into(),
+                idle_seconds: 2,
+            })
+            .unwrap();
+        assert_eq!(
+            record.md5.as_deref(),
+            Some("900150983cd24fb0d6963f7d28e17f72")
+        );
+        assert_eq!(
+            fs::read(store.image_path(&record.id).unwrap()).unwrap(),
+            b"abc"
+        );
+        let mut legacy = serde_json::to_value(&record).unwrap();
+        legacy.as_object_mut().unwrap().remove("md5");
+        append_line(
+            &store.day_dir(&today()).unwrap().join("captures.jsonl"),
+            &legacy,
+        )
+        .unwrap();
+        let reopened = Storage::new(dir.path().to_owned()).unwrap();
+        let records = reopened.records(&today(), 1).unwrap().records;
+        assert_eq!(records.len(), 2);
+        assert_eq!(records[0].md5, None);
+        assert_eq!(records[1].md5, record.md5);
+        assert_eq!(reopened.replay_records().unwrap().len(), 2);
+    }
+
+    #[test]
     fn replay_index_covers_all_days_and_pages_in_chronological_order() {
         let dir = tempfile::tempdir().unwrap();
         let store = Storage::new(dir.path().to_owned()).unwrap();
@@ -424,6 +520,7 @@ mod tests {
                     width: 10,
                     height: 10,
                     bytes: 3,
+                    md5: None,
                     window_title: "工作窗口".into(),
                     process_name: "app.exe".into(),
                     idle_seconds: 0,
@@ -504,7 +601,7 @@ mod tests {
         fs::create_dir_all(store.root.join("records/2000-01-01")).unwrap();
         fs::create_dir_all(store.root.join("records/notes")).unwrap();
         fs::create_dir_all(store.root.join("records").join(today())).unwrap();
-        assert_eq!(store.prune(1, |_| {}).unwrap(), 1);
+        assert_eq!(store.prune(1, |_, _| {}).unwrap(), 1);
         assert!(store.root.join("records/notes").exists());
         assert!(store.root.join("records").join(today()).exists());
     }
@@ -534,7 +631,7 @@ mod tests {
                 idle_seconds: 0,
             })
             .unwrap();
-        assert_eq!(store.prune_storage(0, |_| {}).unwrap(), 2);
+        assert_eq!(store.prune_storage(0, |_, _, _, _| {}).unwrap(), 2);
         assert_eq!(store.records(&today(), 1).unwrap().total, 0);
         assert!(store.image_path(&first.id).is_err());
         assert!(store.image_path(&second.id).is_err());
@@ -568,7 +665,7 @@ mod tests {
         fs::write(&image, [1]).unwrap();
         let mut deleted = Vec::new();
         assert!(store
-            .prune_storage(0, |path| deleted.push(path.to_owned()))
+            .prune_storage(0, |path, _, _, _| deleted.push(path.to_owned()))
             .is_err());
         assert_eq!(deleted, vec![image.clone()]);
         assert!(!image.exists());

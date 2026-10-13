@@ -23,6 +23,7 @@ const record: CaptureRecord = {
   width: 1920,
   height: 1080,
   bytes: 100_000,
+  md5: null,
   windowTitle: "工作文件",
   processName: "notepad.exe",
   idleSeconds: 12,

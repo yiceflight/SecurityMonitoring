@@ -366,7 +366,7 @@ function SettingsForm({
             />
             <span>秒</span>
           </div>
-          <small>至少 1 秒，默认 60 秒；每次截图同时写入系统日志，记录图片路径。</small>
+          <small>至少 1 秒，默认 60 秒；每次截图写入系统日志，记录路径、MD5、图片信息及执行耗时。</small>
         </label>
         <label>
           截图保留
