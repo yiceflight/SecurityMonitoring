@@ -1,0 +1,102 @@
+name: Windows Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-release:
+    if: github.ref == 'refs/heads/main'
+    runs-on: windows-2022
+    timeout-minutes: 60
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Set up pnpm from package.json
+        uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+          cache: true
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            src-tauri -> target
+            src-tauri/monitor-core -> target
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Test frontend
+        run: pnpm test
+
+      - name: Test monitoring core
+        run: cargo test --locked --manifest-path src-tauri/monitor-core/Cargo.toml
+
+      - name: Build and upload Windows installers
+        id: tauri
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tauriScript: pnpm tauri
+          args: --target x86_64-pc-windows-msvc --bundles nsis,msi --ci -- --locked
+          tagName: v__VERSION__-build.${{ github.run_number }}.${{ github.run_attempt }}
+          releaseName: 宜测安全监控 v__VERSION__ · Windows Build ${{ github.run_number }}.${{ github.run_attempt }}
+          releaseBody: |
+            Windows x64 安装包，由 main 分支自动构建。
+
+            - 推荐下载 NSIS 安装包（`-setup.exe`）；也可下载 MSI 安装包（`.msi`）。
+            - 提交：${{ github.sha }}
+            - 构建记录：${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+            安装包未配置 Windows 代码签名。
+          releaseCommitish: ${{ github.sha }}
+          releaseDraft: true
+          prerelease: false
+          uploadUpdaterJson: false
+          uploadWorkflowArtifacts: true
+
+      - name: Verify installers and publish release
+        uses: actions/github-script@v8
+        env:
+          RELEASE_ID: ${{ steps.tauri.outputs.releaseId }}
+        with:
+          script: |
+            const release_id = Number(process.env.RELEASE_ID);
+            const params = { ...context.repo, release_id };
+            const assets = await github.paginate(github.rest.repos.listReleaseAssets, params);
+            for (const extension of ['.exe', '.msi']) {
+              if (!assets.some(asset => asset.name.endsWith(extension) && asset.size > 0 && asset.state === 'uploaded')) {
+                throw new Error(`Missing Windows installer: ${extension}`);
+              }
+            }
+            const { data: release } = await github.rest.repos.updateRelease({
+              ...params,
+              draft: false,
+              prerelease: false,
+              make_latest: 'true',
+            });
+            await core.summary
+              .addHeading('Windows 安装包已发布')
+              .addLink('前往 Release 下载', release.html_url)
+              .write();

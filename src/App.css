@@ -1,0 +1,298 @@
+:root {
+  --blue: #2280b4;
+  --dark: #1b6791;
+  --text: #203747;
+  --muted: #748898;
+  --border: #dce6ed;
+  font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+  color: var(--text);
+  background: #f4f7fa;
+  font-synthesis: none;
+  -webkit-font-smoothing: antialiased;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+  min-width: 320px;
+}
+button,
+input {
+  font: inherit;
+}
+button {
+  padding: 9px 14px;
+  border: 1px solid #cadde9;
+  border-radius: 7px;
+  color: var(--dark);
+  background: #fff;
+  cursor: pointer;
+  font-size: 12px;
+  white-space: nowrap;
+}
+button:hover:not(:disabled):not(.brand-logo) {
+  background: #eaf4fa;
+  border-color: var(--blue);
+}
+button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.primary-button {
+  color: #fff;
+  background: var(--blue);
+  border-color: var(--blue);
+}
+.primary-button:hover:not(:disabled) {
+  background: var(--dark);
+  color: #fff;
+}
+.danger-button {
+  color: #a24c3f;
+  border-color: #e1bdb5;
+}
+
+.app-shell {
+  max-width: 1120px;
+  min-height: 100vh;
+  margin: 0 auto;
+  padding: 32px 36px;
+  display: flex;
+  flex-direction: column;
+}
+.brand, .storage-row, .event-source-row, .dialog-heading,
+.settings-monitor-control {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.brand { justify-content: flex-start; gap: 14px; }
+.brand-logo {
+  display: flex;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  cursor: default;
+  user-select: none;
+}
+.brand-logo:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 4px;
+}
+.brand h1 {
+  margin: 0;
+  font-size: 21px;
+  letter-spacing: 1px;
+  color: var(--blue);
+}
+.monitor-panel {
+  flex: 1;
+  min-height: 320px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 28px;
+  margin-top: 28px;
+  padding: 40px 24px;
+  border: 1px solid #d3e6f1;
+  border-radius: 18px;
+  background: linear-gradient(135deg, #e5f1f8, #f6fafc);
+}
+.status-emblem {
+  display: grid;
+  place-items: center;
+  width: 128px;
+  height: 128px;
+  border-radius: 50%;
+  background: #ffffffb3;
+  border: 1px solid #d3e6f1;
+}
+.runtime-status {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin: 0;
+  font-size: clamp(20px, 3vw, 28px);
+  font-weight: 600;
+  text-align: center;
+  line-height: 1.6;
+}
+.status-dot {
+  flex-shrink: 0;
+  width: 10px;
+  height: 10px;
+  background: #99aab7;
+  border-radius: 50%;
+}
+.running .status-dot { background: #299472; }
+.waiting .status-dot { background: #cd983f; }
+.error .status-dot { background: #bf5646; }
+h3 { margin: 0; font-size: 15px; font-weight: 600; }
+.banner {
+  padding: 12px 16px;
+  margin: 16px 0 0;
+  border: 1px solid;
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.8;
+  overflow-wrap: anywhere;
+}
+.banner.info { color: #496d85; border-color: #d0e3ef; background: #edf5fb; }
+.banner.error { color: #a24c3f; border-color: #edd4cf; background: #fff7f4; }
+.banner.success { color: #2d7560; border-color: #cee5db; background: #f0f8f4; }
+.settings-monitor-control {
+  margin-top: 20px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+}
+.settings-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1.5fr auto;
+  align-items: center;
+  gap: 20px;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+.settings-fields > label {
+  font-size: 12px;
+}
+.number-input {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 9px 0 7px;
+  color: var(--muted);
+}
+input[type="number"] {
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--text);
+  background: #fbfdfe;
+}
+input[type="number"] {
+  width: 100%;
+}
+.settings-fields small {
+  font-size: 10px;
+  color: var(--muted);
+}
+.checkbox-fields {
+  display: grid;
+  gap: 12px;
+}
+.checkbox-fields label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  line-height: 1.5;
+}
+input[type="checkbox"] {
+  accent-color: var(--blue);
+  margin: 0;
+  width: 15px;
+  height: 15px;
+}
+.settings-note {
+  margin: 14px 0 0;
+  color: var(--muted);
+  font-size: 10px;
+}
+.settings-note > span {
+  color: #b38636;
+  margin-left: 10px;
+}
+.storage-row {
+  padding: 15px 0;
+  margin-top: 16px;
+  border-top: 1px solid #edf1f4;
+}
+.storage-row span {
+  font-size: 11px;
+  color: #607789;
+}
+.storage-row p {
+  margin: 5px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+.event-source-row {
+  padding-top: 14px;
+  border-top: 1px solid #edf1f4;
+}
+.event-source-row strong {
+  font-size: 11px;
+  font-weight: 500;
+}
+.event-source-row p {
+  margin: 5px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.8;
+}
+.inline-warning {
+  padding: 9px 12px;
+  margin: 12px 0 0;
+  color: #a24c3f;
+  background: #fff7f4;
+  font-size: 11px;
+  border-radius: 6px;
+}
+
+.settings-dialog {
+  width: min(760px, 94vw);
+  max-height: 94vh;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 20px;
+  color: var(--text);
+}
+.settings-dialog::backdrop { background: #142e46aa; }
+.password-dialog { width: min(360px, 94vw); }
+.password-dialog form { display: grid; gap: 12px; }
+.password-dialog label { font-size: 12px; }
+.password-dialog input {
+  width: 100%;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  background: #fbfdfe;
+}
+.password-dialog .inline-warning { margin: 0; }
+.password-actions { display: flex; justify-content: flex-end; gap: 10px; }
+.settings-dialog form { margin-top: 20px; }
+.settings-dialog .settings-fields {
+  grid-template-columns: 1fr 1fr;
+  align-items: start;
+}
+.settings-dialog .checkbox-fields { grid-column: 1 / -1; }
+.settings-dialog .settings-fields > button {
+  grid-column: 1 / -1;
+  justify-self: end;
+}
+.dialog-heading p {
+  color: var(--muted);
+  font-size: 11px;
+  margin: 6px 0 0;
+}
+@media (max-width: 680px) {
+  .app-shell { padding: 20px 16px; }
+  .brand h1 { font-size: 18px; }
+  .monitor-panel { margin-top: 20px; }
+  .settings-dialog .settings-fields { grid-template-columns: 1fr; }
+  .storage-row, .event-source-row { align-items: flex-start; flex-direction: column; }
+}
