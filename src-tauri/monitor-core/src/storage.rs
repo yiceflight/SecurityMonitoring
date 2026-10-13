@@ -312,7 +312,10 @@ fn append_line<T: Serialize>(path: &Path, value: &T) -> Result<()> {
     let mut file = OpenOptions::new()
         .create(true)
         .read(true)
-        .append(true)
+        // Windows append-only handles cannot truncate an interrupted write.
+        // The monitor's runtime mutex serializes repair and append operations.
+        .write(true)
+        .truncate(false)
         .open(path)
         .map_err(|e| e.to_string())?;
     // Repair an interrupted final write before appending a new committed line.
@@ -332,6 +335,8 @@ fn append_line<T: Serialize>(path: &Path, value: &T) -> Result<()> {
     if committed != len {
         file.set_len(committed).map_err(|e| e.to_string())?;
     }
+    file.seek(SeekFrom::Start(committed))
+        .map_err(|e| e.to_string())?;
     if let Err(error) = file.write_all(&bytes).and_then(|_| file.sync_all()) {
         let rollback = file.set_len(committed).and_then(|_| file.sync_all());
         return Err(match rollback {
@@ -385,6 +390,23 @@ fn atomic_write(path: &Path, bytes: &[u8]) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn append_repairs_partial_tail_and_preserves_committed_bytes() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("captures.jsonl");
+        for initial in [b"".as_slice(), b"{incomplete", b"1\n", b"1\n{incomplete"] {
+            fs::write(&path, initial).unwrap();
+            append_line(&path, &2).unwrap();
+            append_line(&path, &3).unwrap();
+            let expected = if initial.starts_with(b"1\n") {
+                b"1\n2\n3\n".as_slice()
+            } else {
+                b"2\n3\n".as_slice()
+            };
+            assert_eq!(fs::read(&path).unwrap(), expected);
+        }
+    }
 
     #[test]
     fn records_survive_restart_and_truncated_append() {

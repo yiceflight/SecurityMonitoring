@@ -484,7 +484,7 @@ mod tests {
     #[test]
     fn automatic_deletions_log_each_path_and_the_actual_reason() {
         let (dir, host, monitor) = fixture();
-        let expired_dir = dir.path().join("records/2000-01-01");
+        let expired_dir = dir.path().join("records").join("2000-01-01");
         std::fs::create_dir_all(&expired_dir).unwrap();
         let expired: Vec<_> = ["2000-01-01-1.jpg", "2000-01-01-2.jpg"]
             .iter()
