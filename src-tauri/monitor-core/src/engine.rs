@@ -21,8 +21,18 @@ struct Runtime {
     count_date: String,
     today_count: usize,
     cleanup_date: String,
-    next_capture: Instant,
+    capture_timer_started: Option<Instant>,
     shutdown: bool,
+}
+
+impl Runtime {
+    fn capture_delay(&self) -> Duration {
+        self.capture_timer_started
+            .map_or(Duration::ZERO, |started| {
+                Duration::from_secs(self.settings.interval_seconds)
+                    .saturating_sub(started.elapsed())
+            })
+    }
 }
 
 pub struct Monitor {
@@ -55,7 +65,7 @@ impl Monitor {
                 count_date: today(),
                 today_count,
                 cleanup_date: String::new(),
-                next_capture: Instant::now(),
+                capture_timer_started: None,
                 shutdown: false,
             }),
             wake: Condvar::new(),
@@ -95,16 +105,13 @@ impl Monitor {
                 Err(_) => return,
             };
             while !rt.shutdown {
-                if monitor.host.supported()
-                    && rt.settings.enabled
-                    && Instant::now() >= rt.next_capture
-                {
+                if monitor.host.supported() && rt.settings.enabled && rt.capture_delay().is_zero() {
                     let _ = monitor.capture(&mut rt);
-                    rt.next_capture =
-                        Instant::now() + Duration::from_secs(rt.settings.interval_seconds);
+                    rt.capture_timer_started = Some(Instant::now());
                 }
                 let delay = if rt.settings.enabled && monitor.host.supported() {
-                    rt.next_capture.saturating_duration_since(Instant::now())
+                    // Bound each OS wait without limiting the configured interval.
+                    rt.capture_delay().min(Duration::from_secs(3600))
                 } else {
                     Duration::from_secs(3600)
                 };
@@ -175,7 +182,7 @@ impl Monitor {
         rt.settings = settings;
         rt.waiting = None;
         rt.last_error = None;
-        rt.next_capture = Instant::now();
+        rt.capture_timer_started = None;
         self.audit(
             &mut rt,
             if enabled { "started" } else { "stopped" },
@@ -205,7 +212,7 @@ impl Monitor {
         }
         rt.settings = settings;
         rt.auto_start_error = None;
-        rt.next_capture = Instant::now() + Duration::from_secs(rt.settings.interval_seconds);
+        rt.capture_timer_started = Some(Instant::now());
         let message = format!(
             "设置已保存：截图间隔 {} 秒，保留 {} 天，截图空间 {} MB，登录启动 {}",
             rt.settings.interval_seconds,
@@ -224,7 +231,7 @@ impl Monitor {
         self.require_windows()?;
         let mut rt = self.lock()?;
         let result = self.capture(&mut rt);
-        rt.next_capture = Instant::now() + Duration::from_secs(rt.settings.interval_seconds);
+        rt.capture_timer_started = Some(Instant::now());
         self.wake.notify_one();
         result
     }
@@ -634,6 +641,36 @@ mod tests {
             })
             .is_err());
         assert_eq!(monitor.status().unwrap().settings.interval_seconds, 60);
+    }
+
+    #[test]
+    fn positive_intervals_persist_and_schedule_without_overflow() {
+        let (dir, host, monitor) = fixture();
+        for seconds in [1, 9, 3601, 7200, u64::MAX] {
+            monitor
+                .save_settings(Settings {
+                    interval_seconds: seconds,
+                    ..Settings::default()
+                })
+                .unwrap();
+            let restarted = Monitor::new(dir.path().to_owned(), host.clone()).unwrap();
+            assert_eq!(
+                restarted.status().unwrap().settings.interval_seconds,
+                seconds
+            );
+            monitor.capture_now().unwrap();
+            let mut rt = monitor.lock().unwrap();
+            rt.capture_timer_started = Some(Instant::now() - Duration::from_secs(1));
+            let delay = rt.capture_delay();
+            if seconds == 1 {
+                assert!(delay.is_zero());
+            } else {
+                assert!(!delay.is_zero());
+                assert!(delay <= Duration::from_secs(seconds - 1));
+            }
+        }
+        monitor.set_enabled(true).unwrap();
+        assert!(monitor.lock().unwrap().capture_delay().is_zero());
     }
 
     #[test]

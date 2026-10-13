@@ -35,8 +35,8 @@ impl Default for Settings {
 
 impl Settings {
     pub fn validate(&self) -> Result<()> {
-        if !(10..=3600).contains(&self.interval_seconds) {
-            return Err("截屏间隔须为 10–3600 秒".into());
+        if self.interval_seconds < 1 {
+            return Err("截屏间隔须为至少 1 秒的整数".into());
         }
         if !(1..=365).contains(&self.retention_days) {
             return Err("保留时间须为 1–365 天".into());

@@ -125,7 +125,7 @@ describe("Windows monitoring controls", () => {
     expect(changes.map(([, args]) => args.enabled)).toEqual([true, false]);
   });
 
-  it("keeps unsaved settings after write failure and submits the successful retry", async () => {
+  it.each([1, 7200])("keeps a %i-second interval after write failure and submits the successful retry", async (seconds) => {
     const user = userEvent.setup();
     render(<App />);
     await screen.findByText("监控已停止");
@@ -137,14 +137,14 @@ describe("Windows monitoring controls", () => {
       expect(interval.closest("fieldset")?.disabled).toBe(false),
     );
     await user.clear(interval);
-    await user.type(interval, "120");
+    await user.type(interval, String(seconds));
     await user.click(
       screen.getByRole("checkbox", { name: "登录 Windows 后自动启动" }),
     );
     failSave = true;
     await user.click(screen.getByRole("button", { name: "保存设置" }));
     expect(await screen.findByText(/配置写入失败/)).toBeTruthy();
-    expect(interval.value).toBe("120");
+    expect(interval.value).toBe(String(seconds));
     expect(screen.getByText("设置尚未保存")).toBeTruthy();
     failSave = false;
     await waitFor(() =>
@@ -156,7 +156,7 @@ describe("Windows monitoring controls", () => {
     await user.click(screen.getByRole("button", { name: "保存设置" }));
     expect(await screen.findByText("监控设置已保存")).toBeTruthy();
     expect(saved).toMatchObject({
-      intervalSeconds: 120,
+      intervalSeconds: seconds,
       autoStart: true,
       enabled: false,
     });

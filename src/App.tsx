@@ -356,8 +356,8 @@ function SettingsForm({
             <input
               type="number"
               required
-              min="10"
-              max="3600"
+              min="1"
+              step="1"
               value={intervalText}
               onChange={(e) => {
                 setIntervalText(e.target.value);
@@ -366,7 +366,7 @@ function SettingsForm({
             />
             <span>秒</span>
           </div>
-          <small>10–3600 秒，默认 60 秒；每次截图同时写入系统日志，记录图片路径。</small>
+          <small>至少 1 秒，默认 60 秒；每次截图同时写入系统日志，记录图片路径。</small>
         </label>
         <label>
           截图保留
