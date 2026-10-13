@@ -57,6 +57,8 @@ beforeEach(() => {
   bridge.invoke.mockImplementation(
     async (command: string, args: Record<string, unknown>) => {
       switch (command) {
+        case "list_replay_records":
+          return [];
         case "get_status":
           return structuredClone(status);
         case "set_monitoring_enabled": {
@@ -161,7 +163,7 @@ describe("Windows monitoring controls", () => {
     await waitFor(() => expect(screen.queryByText("设置尚未保存")).toBeNull());
   });
 
-  it("shows only monitoring status even when records and diagnostic details are returned", async () => {
+  it("shows header status and playback without exposing private diagnostics", async () => {
     status.state = "running";
     status.settings.enabled = true;
     status.todayCount = 42;
@@ -172,8 +174,10 @@ describe("Windows monitoring controls", () => {
     for (const text of ["YICE SECURITY MONITORING", "今日截图", "最近截图", "使用记录", "运行日志", "private capture diagnostic", "private audit event", "notepad.exe"]) {
       expect(screen.queryByText(text)).toBeNull();
     }
-    expect(screen.getAllByRole("button").map((button) => button.getAttribute("aria-label"))).toEqual(["宜测 logo"]);
-    expect(bridge.invoke.mock.calls.every(([command]) => command === "get_status")).toBe(true);
+    expect(screen.getByText("监控正在运行").closest("header")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "时间回放" })).toBeTruthy();
+    expect(await screen.findByText("暂无回放记录")).toBeTruthy();
+    expect(screen.queryByText("电脑使用规范")).toBeNull();
   });
 
   it("replaces a stale running state after polling fails and recovers without exposing diagnostics", async () => {
@@ -269,7 +273,7 @@ describe("Windows monitoring controls", () => {
     await user.type(passwordInput, "wrong-password{Enter}");
     expect(within(passwordDialog).getByRole("alert").textContent).toContain("密码错误");
     expect(screen.queryByRole("dialog", { name: "监控设置" })).toBeNull();
-    expect(bridge.invoke.mock.calls.every(([command]) => command === "get_status")).toBe(true);
+    expect(bridge.invoke.mock.calls.every(([command]) => ["get_status", "list_replay_records"].includes(command))).toBe(true);
     await user.click(within(passwordDialog).getByRole("button", { name: "取消" }));
     expect(screen.queryByRole("dialog")).toBeNull();
     for (let i = 0; i < 9; i += 1) await user.click(logo);
@@ -302,6 +306,6 @@ describe("Windows monitoring controls", () => {
     expect(within(dialog).getByText(/当前仅可查看设置/)).toBeTruthy();
     expect((within(dialog).getByRole("spinbutton", { name: /截屏间隔/ }).closest("fieldset") as HTMLFieldSetElement).disabled).toBe(true);
     expect((within(dialog).getByRole("button", { name: "注册日志源" }) as HTMLButtonElement).disabled).toBe(true);
-    expect(bridge.invoke.mock.calls.every(([command]) => command === "get_status")).toBe(true);
+    expect(bridge.invoke.mock.calls.every(([command]) => ["get_status", "list_replay_records"].includes(command))).toBe(true);
   });
 });

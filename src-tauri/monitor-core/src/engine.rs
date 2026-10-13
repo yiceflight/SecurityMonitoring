@@ -342,6 +342,9 @@ impl Monitor {
     pub fn records(&self, date: &str, page: usize) -> Result<RecordPage> {
         self.lock()?.storage.records(date, page)
     }
+    pub fn replay_records(&self) -> Result<Vec<CaptureRecord>> {
+        self.lock()?.storage.replay_records()
+    }
     pub fn image_data(&self, id: &str) -> Result<String> {
         self.lock()?.storage.image_data(id)
     }

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 import { call, defaultSettings, native } from "./monitor";
 import type { Settings, Status } from "./monitor";
+import Replay from "./Replay";
 import "./App.css";
 const labels = {
   unsupported: "当前系统不支持监控",
@@ -120,16 +121,12 @@ function App() {
           </button>
           <h1>宜测安全监控</h1>
         </div>
-      </header>
-      <section className={`monitor-panel ${state}`} aria-label="监控状态">
-        <div className="status-emblem" aria-hidden="true">
-          <img src="/shield.svg" alt="" width="72" height="72" />
-        </div>
-        <h2 className="runtime-status" role="status" aria-live="polite">
+        <div className={`runtime-status ${state}`} role="status" aria-live="polite">
           <span className="status-dot" aria-hidden="true" />
           {statusLabel}
-        </h2>
-      </section>
+        </div>
+      </header>
+      <Replay available={usable} />
       {settingsAccess === "password" && (
         <SettingsPasswordDialog
           onClose={() => setSettingsAccess("closed")}
@@ -184,8 +181,8 @@ function App() {
               <strong>Windows 事件日志</strong>
               <p>
                 {status?.eventSourceRegistered
-                  ? "日志源已注册，可在事件查看器的“Windows 日志 → 应用程序”中查找 YiceSecurityMonitoring。"
-                  : "首次使用请注册日志源，Windows 会要求管理员授权。日志仅写入 Windows 事件日志。"}
+                  ? "日志源已注册，可在事件查看器的“Windows 日志 → 系统”中查找 YiceSecurityMonitoring.System。"
+                  : "首次使用或从旧版本升级后，请注册系统日志源，Windows 会要求管理员授权。日志写入“Windows 日志 → 系统”。"}
               </p>
             </div>
             <button

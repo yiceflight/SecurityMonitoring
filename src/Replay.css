@@ -1,0 +1,54 @@
+.replay-panel {
+  margin-top: 24px;
+  padding: 20px 24px 16px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 6px 24px #254e6e05;
+}
+.replay-heading, .replay-metadata, .image-dialog-actions, .timeline-readout {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.replay-heading { justify-content: space-between; margin-bottom: 16px; }
+.replay-heading h2 { margin: 0; font-size: 18px; }
+.replay-empty { min-height: 140px; height: clamp(140px, calc(100dvh - 400px), 620px); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; text-align: center; background: #f5f8fb; border: 1px dashed #d5e1e9; border-radius: 10px; padding: 30px; }
+.replay-empty svg { color: #9bb6c8; }
+.replay-empty strong { font-size: 15px; font-weight: 500; }
+.replay-screen { height: clamp(140px, calc(100dvh - 400px), 620px); position: relative; display: flex; align-items: center; justify-content: center; overflow: hidden; border-radius: 10px; background: #132432; }
+.replay-screen > img { width: 100%; height: 100%; object-fit: contain; }
+.replay-screen > img.image-loading { opacity: 0; }
+.replay-screen-message { position: absolute; inset: 0; display: flex; gap: 14px; align-items: center; justify-content: center; flex-direction: column; color: #c4d4df; font-size: 13px; padding: 20px; text-align: center; }
+.replay-screen-time { position: absolute; top: 12px; left: 12px; padding: 6px 9px; background: #122330ce; color: #e2edf4; border-radius: 5px; font-size: 11px; font-variant-numeric: tabular-nums; }
+.enlarge-button { position: absolute; bottom: 12px; right: 12px; background: #ffffffed; }
+.replay-metadata { padding: 12px 0 16px; font-size: 12px; min-width: 0; }
+.replay-process { color: var(--dark); flex-shrink: 0; max-width: 35%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.replay-window { color: var(--muted); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.replay-count { margin-left: auto; flex-shrink: 0; color: var(--muted); font-variant-numeric: tabular-nums; font-size: 11px; }
+.replay-timeline { padding: 14px 8px 0; border-top: 1px solid #edf1f4; }
+.timeline-readout { justify-content: space-between; margin-bottom: 14px; font-size: 11px; color: var(--muted); }
+.timeline-readout strong { font-size: 12px; color: var(--text); font-weight: 500; font-variant-numeric: tabular-nums; }
+.timeline-track { position: relative; height: 28px; background: #edf2f6; border-radius: 4px; }
+.timeline-track svg { width: 100%; height: 100%; color: #83b8d6; display: block; }
+.timeline-cursor { position: absolute; top: -4px; bottom: -4px; width: 3px; border-radius: 2px; background: var(--blue); transform: translateX(-50%); pointer-events: none; }
+.timeline-cursor::before { content: ""; position: absolute; top: -3px; left: -3px; width: 9px; height: 9px; background: var(--blue); border-radius: 3px; }
+.timeline-track input { position: absolute; inset: 0; margin: 0; width: 100%; height: 100%; cursor: ew-resize; opacity: 0; }
+.timeline-track:focus-within { outline: 2px solid var(--blue); outline-offset: 5px; }
+.timeline-labels { display: flex; justify-content: space-between; gap: 8px; margin-top: 10px; font-size: 10px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.timeline-placeholder { height: 28px; margin: 30px 8px 0; border-radius: 4px; background: #edf2f6; }
+.replay-hint { color: var(--muted); font-size: 10px; line-height: 1.8; margin: 14px 0 0; }
+.replay-image-dialog { width: 94vw; max-width: 1600px; height: 92vh; max-height: 92vh; border: 1px solid var(--border); border-radius: 12px; padding: 16px; color: var(--text); }
+.replay-image-dialog[open] { display: flex; flex-direction: column; gap: 12px; }
+.replay-image-dialog::backdrop { background: #102332ce; }
+.image-dialog-body { flex: 1; min-height: 0; overflow: auto; background: #132432; border-radius: 6px; }
+.image-dialog-body img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.image-dialog-body.original-size img { width: auto; height: auto; max-width: none; }
+@media (max-width: 780px) {
+  .replay-panel { padding: 18px 16px 14px; }
+}
+@media (max-width: 540px) {
+  .replay-metadata, .timeline-readout { flex-wrap: wrap; }
+  .replay-window { flex-basis: 100%; order: 3; }
+  .timeline-labels span:nth-child(2):not(:last-child) { display: none; }
+}

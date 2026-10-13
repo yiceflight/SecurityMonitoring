@@ -51,6 +51,14 @@ async fn list_records(
 }
 
 #[tauri::command]
+async fn list_replay_records(
+    monitor: State<'_, Arc<Monitor>>,
+) -> Result<Vec<CaptureRecord>, String> {
+    let monitor = monitor.inner().clone();
+    blocking(move || monitor.replay_records()).await
+}
+
+#[tauri::command]
 async fn get_record_image(id: String, monitor: State<'_, Arc<Monitor>>) -> Result<String, String> {
     let monitor = monitor.inner().clone();
     blocking(move || monitor.image_data(&id)).await
@@ -101,6 +109,7 @@ pub fn run() {
             save_settings,
             capture_now,
             list_records,
+            list_replay_records,
             get_record_image,
             open_record,
             open_records_folder,

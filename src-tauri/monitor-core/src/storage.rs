@@ -97,6 +97,23 @@ impl Storage {
         })
     }
 
+    /// Snapshot all retained metadata for a continuous history timeline.
+    /// Image bytes are fetched separately, only for the selected record.
+    pub fn replay_records(&self) -> Result<Vec<CaptureRecord>> {
+        let mut timed = Vec::new();
+        for date in self.dates()? {
+            let records: Vec<CaptureRecord> =
+                read_lines(&self.day_dir(&date)?.join("captures.jsonl"))?;
+            for record in records {
+                let time = chrono::DateTime::parse_from_rfc3339(&record.captured_at)
+                    .map_err(|_| "截图时间无效，无法读取回放记录".to_string())?;
+                timed.push((time, record));
+            }
+        }
+        timed.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.id.cmp(&b.1.id)));
+        Ok(timed.into_iter().map(|(_, record)| record).collect())
+    }
+
     pub fn recent_capture(&self) -> Result<Option<CaptureRecord>> {
         for date in self.dates()?.into_iter().rev() {
             let record = self.records(&date, 1)?.records.into_iter().next();
@@ -390,6 +407,46 @@ fn atomic_write(path: &Path, bytes: &[u8]) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn replay_index_covers_all_days_and_pages_in_chronological_order() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Storage::new(dir.path().to_owned()).unwrap();
+        let day = store.day_dir("2026-10-13").unwrap();
+        fs::create_dir_all(&day).unwrap();
+        let path = day.join("captures.jsonl");
+        for minute in (0..45).rev() {
+            append_line(
+                &path,
+                &CaptureRecord {
+                    id: format!("2026-10-13-{minute:02}"),
+                    captured_at: format!("2026-10-13T08:{minute:02}:00+08:00"),
+                    width: 10,
+                    height: 10,
+                    bytes: 3,
+                    window_title: "工作窗口".into(),
+                    process_name: "app.exe".into(),
+                    idle_seconds: 0,
+                },
+            )
+            .unwrap();
+        }
+        let previous_day = store.day_dir("2026-10-12").unwrap();
+        fs::create_dir_all(&previous_day).unwrap();
+        let mut older = store.records("2026-10-13", 1).unwrap().records[0].clone();
+        older.id = "2026-10-12-00".into();
+        older.captured_at = "2026-10-12T23:59:00+08:00".into();
+        append_line(&previous_day.join("captures.jsonl"), &older).unwrap();
+        let records = store.replay_records().unwrap();
+        assert_eq!(records.len(), 46);
+        assert_eq!(records.first().unwrap().id, "2026-10-12-00");
+        assert_eq!(records[1].id, "2026-10-13-00");
+        assert_eq!(records.last().unwrap().id, "2026-10-13-44");
+        let mut invalid = records[0].clone();
+        invalid.captured_at = "invalid".into();
+        append_line(&path, &invalid).unwrap();
+        assert!(store.replay_records().is_err());
+    }
 
     #[test]
     fn append_repairs_partial_tail_and_preserves_committed_bytes() {

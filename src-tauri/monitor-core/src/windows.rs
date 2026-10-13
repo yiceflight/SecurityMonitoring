@@ -86,7 +86,7 @@ impl Host for WindowsHost {
     fn event_source_registered(&self) -> bool {
         RegKey::predef(winreg::enums::HKEY_LOCAL_MACHINE)
             .open_subkey(format!(
-                "SYSTEM\\CurrentControlSet\\Services\\EventLog\\Application\\{APP_NAME}"
+                "SYSTEM\\CurrentControlSet\\Services\\EventLog\\{EVENT_LOG_NAME}\\{EVENT_SOURCE_NAME}"
             ))
             .is_ok()
     }
@@ -94,10 +94,10 @@ impl Host for WindowsHost {
     fn write_event(&self, event: &AuditEvent) -> Result<()> {
         if !self.event_source_registered() {
             return Err(
-                "Windows 事件日志源尚未注册，请点击“注册日志源”；本次系统日志未写入".into(),
+                "Windows 系统日志源尚未注册，请点击“注册日志源”；本次系统日志未写入".into(),
             );
         }
-        let source = wides(APP_NAME);
+        let source = wides(EVENT_SOURCE_NAME);
         let handle = unsafe { RegisterEventSourceW(ptr::null(), source.as_ptr()) };
         if handle.is_null() {
             return Err(format!(
@@ -170,7 +170,24 @@ impl Host for WindowsHost {
         };
         // A fixed, embedded script. No caller-provided arguments or writable script files
         // are executed as administrator. This installs only this application's source.
-        let script = "$ErrorActionPreference='Stop'; try { if (-not [System.Diagnostics.EventLog]::SourceExists('YiceSecurityMonitoring')) { New-EventLog -LogName Application -Source 'YiceSecurityMonitoring' }; Write-EventLog -LogName Application -Source 'YiceSecurityMonitoring' -EventId 1000 -EntryType Information -Message 'YiceSecurityMonitoring event source registered'; exit 0 } catch { exit 1 }";
+        let script = format!(
+            r#"$ErrorActionPreference = 'Stop'
+try {{
+    $source = '{EVENT_SOURCE_NAME}'
+    $log = '{EVENT_LOG_NAME}'
+    if ([System.Diagnostics.EventLog]::SourceExists($source)) {{
+        if ([System.Diagnostics.EventLog]::LogNameFromSourceName($source, '.') -ne $log) {{
+            throw 'Event source is registered to a different log'
+        }}
+    }} else {{
+        New-EventLog -LogName $log -Source $source
+    }}
+    Write-EventLog -LogName $log -Source $source -EventId {EVENT_ID} -EntryType Information -Message 'YiceSecurityMonitoring System event source registered'
+    exit 0
+}} catch {{
+    exit 1
+}}"#
+        );
         let bytes: Vec<u8> = script.encode_utf16().flat_map(u16::to_le_bytes).collect();
         let parameters = wides(&format!(
             "-NoProfile -NonInteractive -EncodedCommand {}",
@@ -216,6 +233,10 @@ impl Host for WindowsHost {
 }
 
 const APP_NAME: &str = "YiceSecurityMonitoring";
+const EVENT_LOG_NAME: &str = "System";
+// Use a new source because Windows caches source-to-log mappings. Reassigning the
+// legacy Application source requires a reboot; leave it intact for old entries.
+const EVENT_SOURCE_NAME: &str = "YiceSecurityMonitoring.System";
 const EVENT_ID: u32 = 1000;
 const RUN_KEY: &str = "Software\\Microsoft\\Windows\\CurrentVersion\\Run";
 

@@ -57,7 +57,7 @@ button:disabled {
   max-width: 1120px;
   min-height: 100vh;
   margin: 0 auto;
-  padding: 32px 36px;
+  padding: 24px 28px;
   display: flex;
   flex-direction: column;
 }
@@ -88,40 +88,26 @@ button:disabled {
   letter-spacing: 1px;
   color: var(--blue);
 }
-.monitor-panel {
-  flex: 1;
-  min-height: 320px;
+.app-header {
   display: flex;
-  flex-direction: column;
   align-items: center;
-  justify-content: center;
-  gap: 28px;
-  margin-top: 28px;
-  padding: 40px 24px;
-  border: 1px solid #d3e6f1;
-  border-radius: 18px;
-  background: linear-gradient(135deg, #e5f1f8, #f6fafc);
-}
-.status-emblem {
-  display: grid;
-  place-items: center;
-  width: 128px;
-  height: 128px;
-  border-radius: 50%;
-  background: #ffffffb3;
-  border: 1px solid #d3e6f1;
+  justify-content: space-between;
+  gap: 16px;
 }
 .runtime-status {
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 12px;
-  margin: 0;
-  font-size: clamp(20px, 3vw, 28px);
-  font-weight: 600;
-  text-align: center;
-  line-height: 1.6;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  background: #fff;
+  color: #607789;
+  font-size: 12px;
+  line-height: 1.5;
 }
+.runtime-status.running { color: #28775e; background: #f1f9f5; border-color: #d5eade; }
+.runtime-status.error { color: #a24c3f; background: #fff7f4; border-color: #edd4cf; }
 .status-dot {
   flex-shrink: 0;
   width: 10px;
@@ -292,7 +278,8 @@ input[type="checkbox"] {
 @media (max-width: 680px) {
   .app-shell { padding: 20px 16px; }
   .brand h1 { font-size: 18px; }
-  .monitor-panel { margin-top: 20px; }
+  .app-header { flex-wrap: wrap; }
+  .runtime-status { margin-left: auto; font-size: 11px; }
   .settings-dialog .settings-fields { grid-template-columns: 1fr; }
   .storage-row, .event-source-row { align-items: flex-start; flex-direction: column; }
 }
