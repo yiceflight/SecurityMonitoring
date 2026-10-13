@@ -23,8 +23,6 @@
 .replay-screen-time { position: absolute; top: 12px; left: 12px; padding: 6px 9px; background: #122330ce; color: #e2edf4; border-radius: 5px; font-size: 11px; font-variant-numeric: tabular-nums; }
 .enlarge-button { position: absolute; bottom: 12px; right: 12px; background: #ffffffed; }
 .replay-metadata { padding: 12px 0 16px; font-size: 12px; min-width: 0; }
-.replay-process { color: var(--dark); flex-shrink: 0; max-width: 35%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.replay-window { color: var(--muted); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .replay-count { margin-left: auto; flex-shrink: 0; color: var(--muted); font-variant-numeric: tabular-nums; font-size: 11px; }
 .replay-timeline { padding: 14px 8px 0; border-top: 1px solid #edf1f4; }
 .timeline-readout { justify-content: space-between; margin-bottom: 14px; font-size: 11px; color: var(--muted); }
@@ -49,6 +47,5 @@
 }
 @media (max-width: 540px) {
   .replay-metadata, .timeline-readout { flex-wrap: wrap; }
-  .replay-window { flex-basis: 100%; order: 3; }
   .timeline-labels span:nth-child(2):not(:last-child) { display: none; }
 }

@@ -109,8 +109,6 @@ function ReplayViewer({ records }: { records: CaptureRecord[] }) {
       <button className="enlarge-button" disabled={!ready} onClick={() => setEnlarged(true)}>放大查看</button>
     </div>
     <div className="replay-metadata">
-      <span className="replay-process">{record.processName || "未知程序"}</span>
-      <span className="replay-window" title={record.windowTitle}>{record.windowTitle || "无窗口标题"}</span>
       <span className="replay-count">{index + 1} / {records.length} 张</span>
     </div>
     <div className="replay-timeline">
@@ -135,7 +133,6 @@ function ReplayViewer({ records }: { records: CaptureRecord[] }) {
       </div>
       <div className="timeline-labels"><span>{axisTime(start)}</span>{end - start > 60_000 && <span>{axisTime((start + end) / 2)}</span>}<span>{axisTime(end)}</span></div>
     </div>
-    <p className="replay-hint">定时截图 · 非连续录像 · 时间轴空白处无采集记录</p>
     {enlarged && ready && currentImage && <ImageDialog src={currentImage.src} record={record} onClose={() => setEnlarged(false)} />}
   </>;
 }

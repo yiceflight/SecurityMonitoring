@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "宜测安全监控",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "identifier": "com.yice.securitymonitoring",
   "build": {
     "beforeDevCommand": "pnpm dev",

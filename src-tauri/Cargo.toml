@@ -1,6 +1,6 @@
 [package]
 name = "yice-security-monitoring"
-version = "0.1.1"
+version = "0.1.2"
 description = "宜测安全监控 Windows 客户端"
 edition = "2021"
 

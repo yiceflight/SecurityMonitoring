@@ -4688,7 +4688,7 @@ dependencies = [
 
 [[package]]
 name = "yice-security-monitoring"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "monitor-core",
  "serde",
