@@ -1,4 +1,4 @@
-# 宜测安全监控
+# 安全监控
 
 仅面向 Windows 的电脑使用记录与审计客户端。采用 Tauri 2、React、TypeScript 和 Rust，不提供 macOS 客户端支持。
 
@@ -6,7 +6,7 @@
 
 已实现 Windows 原生截屏、Rust 后台定时调度、托盘菜单、当前用户登录后自动启动、截图与使用记录保存和 Windows 事件日志。主页面展示历史截图与底部时间轴，监控状态常驻右上角。无需选择日期或输入时间，直接拖动时间轴查看本机保留的历史截图。首次运行默认停止监控，在设置弹窗中点击“开始监控”才会开始定时采集。
 
-默认每 60 秒截屏，保留最近 30 个自然日。监控会将所有显示器的虚拟桌面合成一张 JPEG，同时保存截图时间、尺寸、前台程序名、窗口标题和键鼠空闲秒数。状态包括正在监控、已停止、等待解锁和采集失败；失败后按设定间隔重试。锁屏、UAC 安全桌面或断开用户会话时跳过截图，恢复交互桌面后自动继续。截图文件默认最多占用 1024 MB；超过上限时优先删除最早的截图。
+默认每 60 秒截屏，保留最近 30 个自然日。监控会将所有显示器的虚拟桌面合成一张 JPEG，同时保存截图时间、尺寸、前台程序名、窗口标题和键鼠空闲秒数。状态包括正在监控、已停止、等待解锁和采集失败；失败后按设定间隔重试。锁屏、UAC 安全桌面或断开用户会话时跳过截图，恢复交互桌面后自动继续。截图空间设置不设固定上限；记录所在磁盘剩余空间降至 100 MB 或更少时，优先删除最早的截图后继续采集。
 
 关闭窗口只隐藏到系统托盘，Rust 调度继续运行。单击或双击托盘图标可恢复面板（包括已最小化的窗口），右键菜单可打开面板、开始/停止监控、打开记录目录或退出。再次运行只唤起已有客户端。退出客户端会结束采集；下次启动恢复用户最后一次明确选择的启停状态。
 
@@ -14,13 +14,13 @@
 
 ## 使用方式
 
-1. 在 Windows 中运行客户端，点击左上角 logo 10 次后输入固定密码，通过验证后打开“监控设置”弹窗；每次重新打开都需验证。所有监控设置仅在弹窗内显示，可调整截屏间隔（至少 1 秒的整数，无业务上限）、截图保留天数（1–365 天）和截图空间限制，点击“保存设置”。缩短保留时间后会立即清理过期记录。
+1. 在 Windows 中运行客户端，点击左上角 logo 10 次后输入固定密码，通过验证后打开“监控设置”弹窗；每次重新打开都需验证。所有监控设置仅在弹窗内显示，可调整截屏间隔（至少 1 秒的整数，无业务上限）、截图保留天数（1–365 天）和截图空间设置（至少 100 MB，无固定上限），点击“保存设置”。缩短保留时间后会立即清理过期记录；磁盘剩余空间不足时会自动删除最早截图。
 2. 按需要勾选“登录 Windows 后自动启动”。这会注册当前用户的登录启动项，并在登录时隐藏到托盘；不要求日常运行时使用管理员权限。
-3. 首次使用或从旧版本升级后，点击“注册日志源”，完成系统管理员授权。固定的内置 PowerShell 指令只注册 `YiceSecurityMonitoring.System` 到 System（系统）日志并写入验证事件。取消授权或注册失败会显示错误。
+3. 首次使用或从旧版本升级后，点击“注册日志源”，完成系统管理员授权。固定的内置 PowerShell 指令只注册 `SecurityMonitoring.System` 到 System（系统）日志并写入验证事件。取消授权或注册失败会显示错误。
 4. 在设置弹窗中点击“开始监控”，首张截图立即采集，随后按间隔采集。点击“停止监控”后停止自动采集；界面确认停止后不会再有后台截图。
 5. 右上角每 3 秒刷新实际监控状态；停止、等待解锁、异常和读取失败均如实显示。主页面默认展示保留记录中的最新截图，拖动底部时间轴查看历史画面；点击“刷新记录”重新读取历史并显示最新一张。需要维护时，可在设置弹窗中点击“打开记录目录”查看本地文件。
 
-Windows 事件日志记录启动、退出、开始/停止、截图结果、设置变化和保留清理，写入 System（系统）日志，来源为 `YiceSecurityMonitoring.System`、事件 ID 为 `1000`。每次截图成功保存后立即写入一条“截图：图片完整路径”，没有独立日志间隔或日志开关。过期图片删除成功后逐张写入“截图已过期，自动删除：图片完整路径”；空间超限删除则写入“截图超过空间限制，自动删除：图片完整路径”。失败使用 Error 等级。所有运行日志仅写入 Windows 事件日志，不再创建或追加本地审计文件。Windows 日志源未注册或服务不可写时，设置弹窗提示实际错误，截图仍保存。[Windows 事件源说明](https://learn.microsoft.com/en-us/windows/win32/eventlog/event-sources)、[New-EventLog 官方说明](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.management/new-eventlog?view=powershell-5.1)。
+Windows 事件日志记录启动、退出、开始/停止、截图结果、设置变化和保留清理，写入 System（系统）日志，来源为 `SecurityMonitoring.System`、事件 ID 为 `1000`。每次截图成功保存后立即写入一条“截图：图片完整路径”，没有独立日志间隔或日志开关。过期图片删除成功后逐张写入“截图已过期，自动删除：图片完整路径”；截图空间设置或磁盘剩余空间清理也逐张写入删除原因、路径和空间信息。失败使用 Error 等级。所有运行日志仅写入 Windows 事件日志，不再创建或追加本地审计文件。Windows 日志源未注册或服务不可写时，设置弹窗提示实际错误，截图仍保存。[Windows 事件源说明](https://learn.microsoft.com/en-us/windows/win32/eventlog/event-sources)、[New-EventLog 官方说明](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.management/new-eventlog?view=powershell-5.1)。
 
 ## 时间轴回放
 
@@ -30,7 +30,7 @@ Windows 事件日志记录启动、退出、开始/停止、截图结果、设�
 
 ## 本地存储
 
-数据根目录为 Tauri 的当前用户应用数据目录（Windows 通常为 `%APPDATA%\\com.yice.securitymonitoring`），设置弹窗显示实际路径。配置使用原子替换，记录使用按日期分组的 JSONL 并同步落盘；启动时处理因崩溃中断的末尾记录，不将未写完的数据算作成功。数据仅在本机保存。
+数据根目录为 Tauri 的当前用户应用数据目录（Windows 通常为 `%APPDATA%\\com.securitymonitoring.app`），设置弹窗显示实际路径。配置使用原子替换，记录使用按日期分组的 JSONL 并同步落盘；启动时处理因崩溃中断的末尾记录，不将未写完的数据算作成功。数据仅在本机保存。
 
 ```text
 settings.json                   监控与启动设置
@@ -99,7 +99,7 @@ pnpm preview
 
 推送到 `main` 分支后，[Windows Release 工作流](.github/workflows/windows-release.yml) 会在 Windows runner 上运行前端测试、Rust 核心测试，并构建 Windows x64 的 NSIS（`.exe`）和 MSI（`.msi`）安装包。前端类型检查随 Tauri 的构建命令执行。
 
-两个安装包上传并确认完整后，工作流会自动发布 GitHub Release，标记为 Latest。前往 [最新版本下载](https://github.com/yiceflight/SecurityMonitoring/releases/latest)，在 Assets 中选择 `-setup.exe` 或 `.msi`；[历史版本](https://github.com/yiceflight/SecurityMonitoring/releases) 会保留。构建产物也会保存到对应 Actions 运行的 Artifacts。
+两个安装包上传并确认完整后，工作流会自动发布 GitHub Release，标记为 Latest。前往 [最新版本下载](../../releases/latest)，在 Assets 中选择 `-setup.exe` 或 `.msi`；[历史版本](../../releases) 会保留。构建产物也会保存到对应 Actions 运行的 Artifacts。
 
 Release 标签格式为 `v<应用版本>-build.<运行编号>.<重试编号>`（例如 `v0.1.0-build.12.1`），无需每次推送都修改应用版本号；重新运行会创建新的 Release。安装包内部版本仍使用 `src-tauri/tauri.conf.json` 中的版本，正式升级版本时应同步修改 `package.json`、`src-tauri/Cargo.toml` 及相关锁文件。构建或上传失败时不会公开发布不完整的 Release，可能留下草稿供排查。
 

@@ -116,10 +116,10 @@ function App() {
     <main className="app-shell">
       <header className="app-header">
         <div className="brand">
-          <button className="brand-logo" aria-label="宜测 logo" onClick={clickLogo}>
+          <button className="brand-logo" aria-label="安全监控 logo" onClick={clickLogo}>
             <img src="/shield.svg" alt="" width="44" height="44" draggable={false} />
           </button>
-          <h1>宜测安全监控</h1>
+          <h1>安全监控</h1>
         </div>
         <div className={`runtime-status ${state}`} role="status" aria-live="polite">
           <span className="status-dot" aria-hidden="true" />
@@ -181,7 +181,7 @@ function App() {
               <strong>Windows 事件日志</strong>
               <p>
                 {status?.eventSourceRegistered
-                  ? "日志源已注册，可在事件查看器的“Windows 日志 → 系统”中查找 YiceSecurityMonitoring.System。"
+                  ? "日志源已注册，可在事件查看器的“Windows 日志 → 系统”中查看监控日志。"
                   : "首次使用或从旧版本升级后，请注册系统日志源，Windows 会要求管理员授权。日志写入“Windows 日志 → 系统”。"}
               </p>
             </div>
@@ -231,7 +231,7 @@ function SettingsPasswordDialog({
   }, []);
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    if (password !== "yice123") {
+    if (password !== "admin123") {
       setInvalid(true);
       return;
     }
@@ -393,14 +393,13 @@ function SettingsForm({
               aria-label="截图空间限制"
               type="number"
               min="100"
-              max="1048576"
               required
               value={draft.screenshotStorageLimitMb}
               onChange={(event) => set("screenshotStorageLimitMb", Number(event.target.value))}
             />
             <span>MB</span>
           </div>
-          <small>超过限制后优先删除最早的截图，保留最新记录。</small>
+          <small>不设固定上限；磁盘剩余空间降至 100 MB 或更少时，自动删除最早的截图后继续采集。</small>
         </label>
         <div className="checkbox-fields">
           <label>

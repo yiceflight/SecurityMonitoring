@@ -183,7 +183,7 @@ fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
                 .ok_or_else(|| tauri::Error::AssetNotFound("应用图标".into()))?
                 .clone(),
         )
-        .tooltip("宜测安全监控")
+        .tooltip("安全监控")
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| {

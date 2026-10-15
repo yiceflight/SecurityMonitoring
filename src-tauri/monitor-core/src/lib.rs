@@ -17,7 +17,11 @@ pub struct Settings {
     pub retention_days: u32,
     pub auto_start: bool,
     pub enabled: bool,
-    /// Maximum storage reserved for JPEG screenshots, in MiB.
+    /// Soft maximum storage reserved for JPEG screenshots, in MiB.
+    ///
+    /// There is no configured upper bound. The monitor also protects the
+    /// underlying volume by removing old screenshots when less than 100 MiB
+    /// remains available.
     pub screenshot_storage_limit_mb: u64,
 }
 
@@ -41,8 +45,8 @@ impl Settings {
         if !(1..=365).contains(&self.retention_days) {
             return Err("保留时间须为 1–365 天".into());
         }
-        if !(100..=1_048_576).contains(&self.screenshot_storage_limit_mb) {
-            return Err("截图空间限制须为 100–1048576 MB".into());
+        if self.screenshot_storage_limit_mb < 100 {
+            return Err("截图空间限制须为至少 100 MB".into());
         }
         Ok(())
     }

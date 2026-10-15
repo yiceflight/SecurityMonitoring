@@ -44,7 +44,7 @@ beforeEach(() => {
     },
     state: "stopped",
     storagePath:
-      "C:\\Users\\test\\AppData\\Roaming\\com.yice.securitymonitoring",
+      "C:\\Users\\test\\AppData\\Roaming\\com.securitymonitoring.app",
     todayCount: 0,
     lastCapture: null,
     lastError: null,
@@ -92,7 +92,7 @@ beforeEach(() => {
 afterEach(cleanup);
 
 async function openSettings(user: ReturnType<typeof userEvent.setup>) {
-  const logo = screen.getByRole("button", { name: "宜测 logo" });
+  const logo = screen.getByRole("button", { name: "安全监控 logo" });
   for (let i = 0; i < 10; i += 1) await user.click(logo);
   await unlockSettings(user);
   return screen.findByRole("dialog", { name: "监控设置" });
@@ -102,7 +102,7 @@ async function unlockSettings(user: ReturnType<typeof userEvent.setup>) {
   const passwordDialog = await screen.findByRole("dialog", { name: "身份验证" });
   expect(screen.queryByRole("dialog", { name: "监控设置" })).toBeNull();
   expect(screen.queryByRole("spinbutton")).toBeNull();
-  await user.type(within(passwordDialog).getByLabelText("请输入密码"), "yice123");
+  await user.type(within(passwordDialog).getByLabelText("请输入密码"), "admin123");
   await user.click(within(passwordDialog).getByRole("button", { name: "确认" }));
 }
 
@@ -172,7 +172,7 @@ describe("Windows monitoring controls", () => {
     status.lastError = "private capture diagnostic";
     render(<App />);
     await screen.findByText("监控正在运行");
-    for (const text of ["YICE SECURITY MONITORING", "今日截图", "最近截图", "使用记录", "运行日志", "private capture diagnostic", "private audit event", "notepad.exe"]) {
+    for (const text of ["SECURITY MONITORING", "今日截图", "最近截图", "使用记录", "运行日志", "private capture diagnostic", "private audit event", "notepad.exe"]) {
       expect(screen.queryByText(text)).toBeNull();
     }
     expect(screen.getByText("监控正在运行").closest("header")).toBeTruthy();
@@ -220,7 +220,7 @@ describe("Windows monitoring controls", () => {
     const user = userEvent.setup();
     render(<App />);
     await screen.findByText("监控已停止");
-    const logo = screen.getByRole("button", { name: "宜测 logo" });
+    const logo = screen.getByRole("button", { name: "安全监控 logo" });
     expect(screen.queryByText("监控设置")).toBeNull();
     expect(screen.queryByRole("spinbutton")).toBeNull();
     expect(screen.queryByRole("button", { name: "注册日志源" })).toBeNull();
@@ -236,7 +236,9 @@ describe("Windows monitoring controls", () => {
     await user.click(within(dialog).getByRole("checkbox", { name: "登录 Windows 后自动启动" }));
     expect(within(dialog).queryByRole("spinbutton", { name: "截图日志写入间隔" })).toBeNull();
     expect(within(dialog).queryByRole("checkbox", { name: "同时写入 Windows 事件日志" })).toBeNull();
-    await user.clear(within(dialog).getByRole("spinbutton", { name: "截图空间限制" }));
+    const storageLimit = within(dialog).getByRole("spinbutton", { name: "截图空间限制" });
+    expect(storageLimit.getAttribute("max")).toBeNull();
+    await user.clear(storageLimit);
     await user.type(
       within(dialog).getByRole("spinbutton", { name: "截图空间限制" }),
       "2048",
@@ -266,7 +268,7 @@ describe("Windows monitoring controls", () => {
     const user = userEvent.setup();
     render(<App />);
     await screen.findByText("监控已停止");
-    const logo = screen.getByRole("button", { name: "宜测 logo" });
+    const logo = screen.getByRole("button", { name: "安全监控 logo" });
     for (let i = 0; i < 10; i += 1) await user.click(logo);
     const passwordDialog = await screen.findByRole("dialog", { name: "身份验证" });
     const passwordInput = within(passwordDialog).getByLabelText("请输入密码") as HTMLInputElement;
@@ -290,7 +292,7 @@ describe("Windows monitoring controls", () => {
     const retry = await screen.findByRole("dialog", { name: "身份验证" });
     await user.type(within(retry).getByLabelText("请输入密码"), "incorrect{Enter}");
     await user.clear(within(retry).getByLabelText("请输入密码"));
-    await user.type(within(retry).getByLabelText("请输入密码"), "yice123{Enter}");
+    await user.type(within(retry).getByLabelText("请输入密码"), "admin123{Enter}");
     expect(await screen.findByRole("dialog", { name: "监控设置" })).toBeTruthy();
     expect(screen.queryByRole("dialog", { name: "身份验证" })).toBeNull();
   });

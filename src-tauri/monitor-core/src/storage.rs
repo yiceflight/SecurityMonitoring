@@ -72,6 +72,9 @@ pub struct Storage {
     pub root: PathBuf,
 }
 
+/// Keep this much free space on the volume that contains the records.
+pub const MIN_FREE_SPACE_BYTES: u64 = 100 * 1024 * 1024;
+
 impl Storage {
     pub fn new(root: PathBuf) -> Result<Self> {
         fs::create_dir_all(root.join("records")).map_err(|e| format!("无法创建记录目录：{e}"))?;
@@ -102,6 +105,38 @@ impl Storage {
             &self.root.join("settings.json"),
             &serde_json::to_vec_pretty(settings).map_err(|e| e.to_string())?,
         )
+    }
+
+    pub fn available_space_bytes(&self) -> Result<u64> {
+        #[cfg(windows)]
+        {
+            use std::{os::windows::ffi::OsStrExt, ptr};
+            use windows_sys::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
+
+            let path: Vec<u16> = self.root.as_os_str().encode_wide().chain(Some(0)).collect();
+            let mut available = 0u64;
+            let ok = unsafe {
+                GetDiskFreeSpaceExW(
+                    path.as_ptr(),
+                    &mut available,
+                    ptr::null_mut(),
+                    ptr::null_mut(),
+                )
+            };
+            if ok == 0 {
+                return Err(format!(
+                    "无法读取记录磁盘剩余空间：{}",
+                    std::io::Error::last_os_error()
+                ));
+            }
+            Ok(available)
+        }
+        #[cfg(not(windows))]
+        {
+            // Native capture is Windows-only. Tests and browser preview should
+            // not pretend that the host volume is low on space.
+            Ok(u64::MAX)
+        }
     }
 
     fn day_dir(&self, date: &str) -> Result<PathBuf> {
@@ -288,9 +323,7 @@ impl Storage {
         limit_mb: u64,
         mut on_deleted: impl FnMut(&Path, u64, u64, u64),
     ) -> Result<usize> {
-        let limit = limit_mb
-            .checked_mul(1024 * 1024)
-            .ok_or("截图空间限制过大")?;
+        let limit = limit_mb.saturating_mul(1024 * 1024);
         let mut files = Vec::new();
         let mut total = 0u64;
         for date in self.dates()? {
@@ -338,6 +371,59 @@ impl Storage {
             removed += 1;
         }
         Ok(removed)
+    }
+
+    /// Remove the oldest JPEGs until the records volume has the requested
+    /// amount of free space, or until this application's screenshots are gone.
+    pub fn prune_for_free_space(
+        &self,
+        reserve_bytes: u64,
+        mut on_deleted: impl FnMut(&Path, u64, u64, u64),
+    ) -> Result<usize> {
+        let mut removed = 0;
+        loop {
+            let available = self.available_space_bytes()?;
+            if available > reserve_bytes {
+                return Ok(removed);
+            }
+            let mut files = Vec::new();
+            for date in self.dates()? {
+                let dir = self.day_dir(&date)?;
+                for entry in fs::read_dir(&dir).map_err(|e| e.to_string())? {
+                    let entry = entry.map_err(|e| e.to_string())?;
+                    let path = entry.path();
+                    if path.extension().and_then(|v| v.to_str()) == Some("jpg")
+                        && !path.is_symlink()
+                        && path.is_file()
+                    {
+                        let bytes = entry.metadata().map_err(|e| e.to_string())?.len();
+                        files.push((date.clone(), path, bytes));
+                    }
+                }
+            }
+            files.sort_by(|a, b| a.1.cmp(&b.1));
+            let Some((date, path, bytes)) = files.into_iter().next() else {
+                return Ok(removed);
+            };
+            let id = path
+                .file_stem()
+                .and_then(|v| v.to_str())
+                .ok_or("截图文件名无效")?
+                .to_string();
+            fs::remove_file(&path)
+                .map_err(|e| format!("磁盘空间清理删除失败：{}；{e}", path.display()))?;
+            let after = self.available_space_bytes()?;
+            on_deleted(&path, bytes, available, after);
+            let index = self.day_dir(&date)?.join("captures.jsonl");
+            let records: Vec<CaptureRecord> = read_lines::<CaptureRecord>(&index)
+                .map_err(|e| format!("清理后读取索引失败：{}；{e}", index.display()))?
+                .into_iter()
+                .filter(|record: &CaptureRecord| record.id != id)
+                .collect();
+            rewrite_lines(&index, &records)
+                .map_err(|e| format!("清理后更新索引失败：{}；{e}", index.display()))?;
+            removed += 1;
+        }
     }
 }
 

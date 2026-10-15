@@ -17,13 +17,13 @@ it("requires password after ten logo clicks in browser preview without enabling 
   expect(screen.queryByRole("button", { name: "开始监控" })).toBeNull();
   expect(screen.queryByText("监控设置")).toBeNull();
   const user = userEvent.setup();
-  const logo = screen.getByRole("button", { name: "宜测 logo" });
+  const logo = screen.getByRole("button", { name: "安全监控 logo" });
   for (let i = 0; i < 9; i += 1) await user.click(logo);
   expect(screen.queryByRole("dialog")).toBeNull();
   await user.click(logo);
   const passwordDialog = await screen.findByRole("dialog", { name: "身份验证" });
   expect(screen.queryByRole("dialog", { name: "监控设置" })).toBeNull();
-  await user.type(within(passwordDialog).getByLabelText("请输入密码"), "yice123{Enter}");
+  await user.type(within(passwordDialog).getByLabelText("请输入密码"), "admin123{Enter}");
   const dialog = await screen.findByRole("dialog", { name: "监控设置" });
   for (const name of ["开始监控", "保存设置", "注册日志源", "打开记录目录"]) {
     expect((within(dialog).getByRole("button", { name }) as HTMLButtonElement).disabled).toBe(true);

@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    yice_security_monitoring_lib::run()
+    security_monitoring_lib::run()
 }

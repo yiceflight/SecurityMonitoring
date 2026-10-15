@@ -1,5 +1,5 @@
 use crate::{
-    storage::{today, Storage},
+    storage::{today, Storage, MIN_FREE_SPACE_BYTES},
     AuditEvent, CaptureOutcome, CaptureRecord, Host, RecordPage, Result, Settings, Status,
 };
 use chrono::Local;
@@ -450,6 +450,22 @@ impl Monitor {
                     }
                 })
         {
+            errors.push(error);
+        }
+        if let Err(error) = rt.storage.prune_for_free_space(
+            MIN_FREE_SPACE_BYTES,
+            |path, bytes, before, after| {
+                if let Err(error) = self.write_event(
+                    "retention",
+                    &format!(
+                        "磁盘剩余空间不足，自动删除最早截图：{}\n删除结果：成功\n文件大小：{} 字节\n删除前可用空间：{} 字节\n删除后可用空间：{} 字节\n最低保留空间：{} 字节",
+                        path.display(), bytes, before, after, MIN_FREE_SPACE_BYTES
+                    ),
+                ) {
+                    audit_errors.push(error);
+                }
+            },
+        ) {
             errors.push(error);
         }
         let cleanup_error = if errors.is_empty() {
@@ -903,6 +919,20 @@ mod tests {
             })
             .is_err());
         assert_eq!(monitor.status().unwrap().settings.interval_seconds, 60);
+        monitor
+            .save_settings(Settings {
+                screenshot_storage_limit_mb: 9_999_999_999,
+                ..Settings::default()
+            })
+            .unwrap();
+        assert_eq!(
+            monitor
+                .status()
+                .unwrap()
+                .settings
+                .screenshot_storage_limit_mb,
+            9_999_999_999
+        );
     }
 
     #[test]

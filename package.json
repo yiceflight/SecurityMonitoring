@@ -1,5 +1,5 @@
 {
-  "name": "yice-security-monitoring",
+  "name": "security-monitoring",
   "private": true,
   "version": "0.1.4",
   "type": "module",

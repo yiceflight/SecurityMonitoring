@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "宜测安全监控",
+  "productName": "安全监控",
   "version": "0.1.4",
-  "identifier": "com.yice.securitymonitoring",
+  "identifier": "com.securitymonitoring.app",
   "build": {
     "beforeDevCommand": "pnpm dev",
     "devUrl": "http://127.0.0.1:19427",
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "宜测安全监控",
+        "title": "安全监控",
         "width": 1080,
         "height": 760,
         "minWidth": 720,
@@ -27,6 +27,7 @@
   },
   "bundle": {
     "active": true,
+    "publisher": "安全监控",
     "targets": ["nsis", "msi"],
     "windows": {
       "wix": {
