@@ -81,6 +81,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Verify XP toolset is installed
+        id: xp-toolset
         shell: pwsh
         run: |
           $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
@@ -92,6 +93,16 @@ jobs:
             throw 'Visual Studio v141 is not installed; the XP-compatible Legacy build cannot be verified on this runner.'
           }
           Write-Host "v141 installation: $installations"
+
+      - name: Explain legacy build gate
+        if: failure()
+        shell: pwsh
+        run: |
+          @'
+          ## Legacy build blocked by runner toolchain
+
+          This job requires the Visual Studio v141 XP toolset (`v141_xp`). The GitHub-hosted Windows 2022 image does not provide it, so the XP-compatible C++ build was not attempted. Run this job on a self-hosted Windows machine with the v141 XP component installed.
+          '@ | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
 
       - name: Install NSIS
         shell: pwsh
@@ -119,7 +130,7 @@ jobs:
         run: .\scripts\build-unified-installer.ps1
 
       - name: Upload Legacy and unified installer artifacts
-        if: always()
+        if: always() && steps.xp-toolset.conclusion == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: legacy-unified-installer
@@ -127,4 +138,3 @@ jobs:
           path: |
             legacy-win32/build/*.exe
             legacy-win32/build/Release/*.exe
-
