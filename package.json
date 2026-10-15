@@ -13,7 +13,8 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "desktop:dev": "tauri dev",
-    "desktop:build": "tauri build"
+    "desktop:build": "tauri build",
+    "installer:build": "powershell -ExecutionPolicy Bypass -File scripts/build-unified-installer.ps1"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",

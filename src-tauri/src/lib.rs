@@ -121,27 +121,8 @@ pub fn run() {
                 Monitor::new(root, monitor_core::native_host(), env!("CARGO_PKG_VERSION"))
                     .map_err(std::io::Error::other)?;
             app.manage(Arc::clone(&monitor));
-            setup_tray(app)?;
-            if std::env::args().any(|arg| arg == "--background") {
-                if let Some(window) = app.get_webview_window("main") {
-                    window.hide()?;
-                }
-            }
             monitor.start_worker();
             Ok(())
-        })
-        .on_window_event(|window, event| {
-            if window.label() != "main" {
-                return;
-            }
-            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                api.prevent_close();
-                if let Err(error) = window.hide() {
-                    if let Some(monitor) = window.try_state::<Arc<Monitor>>() {
-                        monitor.report_error(format!("收起窗口失败：{error}"));
-                    }
-                }
-            }
         })
         .build(tauri::generate_context!())
         .expect("error while building application");
@@ -164,74 +145,4 @@ fn show_main_window(app: &tauri::AppHandle) {
         let _ = window.unminimize();
         let _ = window.set_focus();
     }
-}
-
-fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
-    use tauri::{
-        menu::{Menu, MenuItem},
-        tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    };
-    let show = MenuItem::with_id(app, "show", "打开监控面板", true, None::<&str>)?;
-    let start = MenuItem::with_id(app, "start", "开始监控", true, None::<&str>)?;
-    let stop = MenuItem::with_id(app, "stop", "停止监控", true, None::<&str>)?;
-    let folder = MenuItem::with_id(app, "folder", "打开记录目录", true, None::<&str>)?;
-    let quit = MenuItem::with_id(app, "quit", "退出客户端", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&show, &start, &stop, &folder, &quit])?;
-    TrayIconBuilder::with_id("monitor-tray")
-        .icon(
-            app.default_window_icon()
-                .ok_or_else(|| tauri::Error::AssetNotFound("应用图标".into()))?
-                .clone(),
-        )
-        .tooltip("安全监控")
-        .menu(&menu)
-        .show_menu_on_left_click(false)
-        .on_menu_event(|app, event| {
-            let Some(state) = app.try_state::<Arc<Monitor>>() else {
-                return;
-            };
-            let monitor = state.inner().clone();
-            match event.id().as_ref() {
-                "show" => {
-                    show_main_window(app);
-                }
-                "start" | "stop" | "folder" => {
-                    let action = event.id().as_ref().to_string();
-                    let app = app.clone();
-                    tauri::async_runtime::spawn_blocking(move || {
-                        let result = match action.as_str() {
-                            "start" => monitor.set_enabled(true),
-                            "stop" => monitor.set_enabled(false),
-                            _ => monitor.open_folder(),
-                        };
-                        if let Err(error) = result {
-                            monitor.report_error(format!("托盘操作失败：{error}"));
-                            show_main_window(&app);
-                        }
-                    });
-                }
-                "quit" => {
-                    monitor.shutdown();
-                    app.exit(0);
-                }
-                _ => {}
-            }
-        })
-        .on_tray_icon_event(|tray, event| {
-            if matches!(
-                event,
-                TrayIconEvent::Click {
-                    button: MouseButton::Left,
-                    button_state: MouseButtonState::Up,
-                    ..
-                } | TrayIconEvent::DoubleClick {
-                    button: MouseButton::Left,
-                    ..
-                }
-            ) {
-                show_main_window(tray.app_handle());
-            }
-        })
-        .build(app)?;
-    Ok(())
 }
