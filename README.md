@@ -16,11 +16,11 @@
 
 1. 在 Windows 中运行客户端，点击左上角 logo 10 次后输入固定密码，通过验证后打开“监控设置”弹窗；每次重新打开都需验证。所有监控设置仅在弹窗内显示，可调整截屏间隔（至少 1 秒的整数，无业务上限）、截图保留天数（1–365 天）和截图空间设置（至少 100 MB，无固定上限），点击“保存设置”。缩短保留时间后会立即清理过期记录；磁盘剩余空间不足时会自动删除最早截图。
 2. 按需要勾选“登录 Windows 后自动启动”。这会注册当前用户的登录启动项，并在登录时隐藏到托盘；不要求日常运行时使用管理员权限。
-3. 首次使用或从旧版本升级后，点击“注册日志源”，完成系统管理员授权。固定的内置 PowerShell 指令只注册 `SecurityMonitoring.System` 到 System（系统）日志并写入验证事件。取消授权或注册失败会显示错误。
+3. 首次使用或从旧版本升级后，点击“注册日志源”，完成系统管理员授权。固定的内置 PowerShell 指令只注册 `SecurityMonitoring` 到 System（系统）日志并写入验证事件。取消授权或注册失败会显示错误。
 4. 在设置弹窗中点击“开始监控”，首张截图立即采集，随后按间隔采集。点击“停止监控”后停止自动采集；界面确认停止后不会再有后台截图。
 5. 右上角每 3 秒刷新实际监控状态；停止、等待解锁、异常和读取失败均如实显示。主页面默认展示保留记录中的最新截图，拖动底部时间轴查看历史画面；点击“刷新记录”重新读取历史并显示最新一张。需要维护时，可在设置弹窗中点击“打开记录目录”查看本地文件。
 
-Windows 事件日志记录启动、退出、开始/停止、截图结果、设置变化和保留清理，写入 System（系统）日志，来源为 `SecurityMonitoring.System`、事件 ID 为 `1000`。每次截图成功保存后立即写入一条“截图：图片完整路径”，没有独立日志间隔或日志开关。过期图片删除成功后逐张写入“截图已过期，自动删除：图片完整路径”；截图空间设置或磁盘剩余空间清理也逐张写入删除原因、路径和空间信息。失败使用 Error 等级。所有运行日志仅写入 Windows 事件日志，不再创建或追加本地审计文件。Windows 日志源未注册或服务不可写时，设置弹窗提示实际错误，截图仍保存。[Windows 事件源说明](https://learn.microsoft.com/en-us/windows/win32/eventlog/event-sources)、[New-EventLog 官方说明](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.management/new-eventlog?view=powershell-5.1)。
+Windows 事件日志记录启动、退出、开始/停止、截图结果、设置变化和保留清理，写入 System（系统）日志，来源为 `SecurityMonitoring`、事件 ID 为 `1000`。每次截图成功保存后立即写入一条“截图：图片完整路径”，没有独立日志间隔或日志开关。过期图片删除成功后逐张写入“截图已过期，自动删除：图片完整路径”；截图空间设置或磁盘剩余空间清理也逐张写入删除原因、路径和空间信息。失败使用 Error 等级。所有运行日志仅写入 Windows 事件日志，不再创建或追加本地审计文件。Windows 日志源未注册或服务不可写时，设置弹窗提示实际错误，截图仍保存。[Windows 事件源说明](https://learn.microsoft.com/en-us/windows/win32/eventlog/event-sources)、[New-EventLog 官方说明](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.management/new-eventlog?view=powershell-5.1)。
 
 ## 时间轴回放
 

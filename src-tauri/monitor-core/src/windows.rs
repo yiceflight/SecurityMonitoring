@@ -259,9 +259,7 @@ try {{
 
 const APP_NAME: &str = "SecurityMonitoring";
 const EVENT_LOG_NAME: &str = "System";
-// Use a new source because Windows caches source-to-log mappings. Reassigning the
-// legacy Application source requires a reboot; leave it intact for old entries.
-const EVENT_SOURCE_NAME: &str = "SecurityMonitoring.System";
+const EVENT_SOURCE_NAME: &str = "SecurityMonitoring";
 const EVENT_ID: u32 = 1000;
 const RUN_KEY: &str = "Software\\Microsoft\\Windows\\CurrentVersion\\Run";
 

@@ -290,10 +290,7 @@ impl Monitor {
                         self.audit(
                             rt,
                             "skipped",
-                            &format!(
-                                "暂停截图\n原因：{reason}\n触发方式：{trigger}\n截图间隔：{} 秒",
-                                rt.settings.interval_seconds
-                            ),
+                            &format!("暂停截图\n原因：{reason}\n触发方式：{trigger}"),
                         );
                     } else if rt.audit_error.is_none() {
                         // An unchanged pause emits no event; it cannot prove that logging recovered.
@@ -334,11 +331,11 @@ impl Monitor {
                     }
                 }
                 let message = format!(
-                    "截图成功\n图片路径：{}\n截图编号：{}\n记录时间：{}\nMD5：{}\n图片分辨率：{} × {}\n文件大小：{} 字节\n前台进程：{}\n用户空闲：{} 秒\n触发方式：{}\n截图间隔：{} 秒\n采集及编码耗时：{} ms\n校验及保存耗时：{} ms",
+                    "截图成功\n图片路径：{}\n截图编号：{}\n记录时间：{}\nMD5：{}\n图片分辨率：{} × {}\n文件大小：{} 字节\n前台进程：{}\n用户空闲：{} 秒\n触发方式：{}\n采集及编码耗时：{} ms\n校验及保存耗时：{} ms",
                     path.display(), record.id, record.captured_at, record.md5.as_deref().unwrap_or("未记录"),
                     record.width, record.height, record.bytes,
                     if record.process_name.is_empty() { "不可用".into() } else { format!("{:?}", record.process_name) },
-                    record.idle_seconds, trigger, rt.settings.interval_seconds, capture_ms, save_ms
+                    record.idle_seconds, trigger, capture_ms, save_ms
                 );
                 if let Err(error) = self.write_event("captured", &message) {
                     errors.push(error);
@@ -384,9 +381,8 @@ impl Monitor {
     ) -> Result<Option<CaptureRecord>> {
         rt.consecutive_failures = rt.consecutive_failures.saturating_add(1);
         let message = format!(
-            "截图失败\n触发方式：{}\n截图间隔：{} 秒\n连续失败次数：{}\n记录目录：{}\n错误详情：{}",
+            "截图失败\n触发方式：{}\n连续失败次数：{}\n记录目录：{}\n错误详情：{}",
             trigger,
-            rt.settings.interval_seconds,
             rt.consecutive_failures,
             rt.storage.root.display(),
             error
@@ -552,8 +548,7 @@ impl Monitor {
 
 fn settings_summary(settings: &Settings) -> String {
     format!(
-        "截图间隔 {} 秒，保留 {} 天，截图空间 {} MiB，登录启动 {}，监控启用 {}",
-        settings.interval_seconds,
+        "保留 {} 天，截图空间 {} MiB，登录启动 {}，监控启用 {}",
         settings.retention_days,
         settings.screenshot_storage_limit_mb,
         settings.auto_start,
@@ -708,6 +703,9 @@ mod tests {
         assert!(recovered[1].message.contains("此前暂停原因：锁屏"));
         assert!(recovered[1].message.contains("暂停时长："));
         assert_eq!(events.iter().filter(|e| e.kind == "skipped").count(), 1);
+        assert!(events
+            .iter()
+            .all(|event| !event.message.contains("截图间隔")));
         assert_eq!(monitor.lock().unwrap().consecutive_failures, 0);
     }
 
@@ -740,14 +738,16 @@ mod tests {
         let events = host.events.lock().unwrap();
         let startup = &events[0];
         assert_eq!(startup.kind, "startup");
-        assert!(startup.message.contains("生效配置：截图间隔 60 秒"));
+        assert!(startup.message.contains("生效配置：保留 30 天"));
+        assert!(!startup.message.contains("截图间隔"));
         assert!(startup.message.contains("客户端版本：test-1.2.3"));
         let changed = events.iter().find(|e| e.kind == "settings").unwrap();
-        assert!(changed.message.contains("修改前：截图间隔 60 秒"));
-        assert!(changed.message.contains("修改后：截图间隔 120 秒"));
+        assert!(changed.message.contains("修改前：保留 30 天"));
+        assert!(changed.message.contains("修改后：保留 30 天"));
+        assert!(!changed.message.contains("截图间隔"));
         let captured = events.iter().find(|e| e.kind == "captured").unwrap();
         assert!(captured.message.contains("触发方式：定时"));
-        assert!(captured.message.contains("截图间隔：120 秒"));
+        assert!(!captured.message.contains("截图间隔"));
         assert!(events
             .iter()
             .all(|e| e.message.contains(&monitor.event_context)));
