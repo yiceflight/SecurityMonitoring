@@ -33,6 +33,13 @@ pub struct AuditEvent {
 }
 
 impl AuditEvent {
+    /// Only screenshot creation and screenshot deletion are persisted to the
+    /// Windows event log. Other kinds remain useful as internal state and
+    /// diagnostics, but are intentionally excluded from the event stream.
+    pub fn is_persisted(&self) -> bool {
+        matches!(self.kind.as_str(), "captured" | "retention")
+    }
+
     pub fn event_id(&self) -> u32 {
         match self.kind.as_str() {
             "startup" => 1001,
@@ -552,6 +559,37 @@ fn atomic_write(path: &Path, bytes: &[u8]) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_capture_and_delete_events_are_persisted() {
+        for kind in ["captured", "retention"] {
+            assert!(AuditEvent {
+                created_at: String::new(),
+                kind: kind.into(),
+                message: String::new(),
+            }
+            .is_persisted());
+        }
+        for kind in [
+            "startup",
+            "shutdown",
+            "started",
+            "stopped",
+            "settings",
+            "capture_error",
+            "skipped",
+            "resumed",
+            "cleanup_error",
+            "error",
+        ] {
+            assert!(!AuditEvent {
+                created_at: String::new(),
+                kind: kind.into(),
+                message: String::new(),
+            }
+            .is_persisted());
+        }
+    }
 
     #[test]
     fn digest_matches_saved_bytes_and_survives_restart_with_legacy_records() {

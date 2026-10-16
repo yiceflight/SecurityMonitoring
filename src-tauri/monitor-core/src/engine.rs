@@ -393,11 +393,15 @@ impl Monitor {
     }
 
     fn write_event(&self, kind: &str, message: &str) -> Result<()> {
-        self.host.write_event(&AuditEvent {
+        let event = AuditEvent {
             created_at: Local::now().to_rfc3339(),
             kind: kind.into(),
             message: format!("{}\n{}", message, self.event_context),
-        })
+        };
+        if !event.is_persisted() {
+            return Ok(());
+        }
+        self.host.write_event(&event)
     }
 
     fn audit(&self, rt: &mut Runtime, kind: &str, message: &str) {
@@ -674,7 +678,7 @@ mod tests {
     }
 
     #[test]
-    fn failures_and_pauses_log_one_recovery_with_previous_context() {
+    fn failures_and_pauses_do_not_write_extra_event_types() {
         let (_dir, host, monitor) = fixture();
         host.fail.store(true, Ordering::SeqCst);
         assert!(monitor.capture_now().is_err());
@@ -688,21 +692,14 @@ mod tests {
         host.locked.store(false, Ordering::SeqCst);
         monitor.capture_now().unwrap();
         let events = host.events.lock().unwrap();
-        let failures: Vec<_> = events
-            .iter()
-            .filter(|e| e.kind == "capture_error")
-            .collect();
-        assert_eq!(failures.len(), 2);
-        assert!(failures[1].message.contains("连续失败次数：2"));
-        assert!(failures[1].message.contains("阶段：采集或编码"));
-        assert_eq!(failures[1].event_id(), 1101);
-        assert!(failures[1].is_error());
-        let recovered: Vec<_> = events.iter().filter(|e| e.kind == "resumed").collect();
-        assert_eq!(recovered.len(), 2);
-        assert!(recovered[0].message.contains("此前连续失败次数：2"));
-        assert!(recovered[1].message.contains("此前暂停原因：锁屏"));
-        assert!(recovered[1].message.contains("暂停时长："));
-        assert_eq!(events.iter().filter(|e| e.kind == "skipped").count(), 1);
+        assert_eq!(events.iter().filter(|e| e.kind == "captured").count(), 3);
+        assert_eq!(
+            events.iter().filter(|e| e.kind == "capture_error").count(),
+            0
+        );
+        assert_eq!(events.iter().filter(|e| e.kind == "resumed").count(), 0);
+        assert_eq!(events.iter().filter(|e| e.kind == "skipped").count(), 0);
+        assert!(events.iter().all(AuditEvent::is_persisted));
         assert!(events
             .iter()
             .all(|event| !event.message.contains("截图间隔")));
@@ -710,21 +707,21 @@ mod tests {
     }
 
     #[test]
-    fn unchanged_pause_does_not_hide_a_failed_log_write() {
+    fn ignored_pause_events_do_not_report_a_log_write_failure() {
         let (_dir, host, monitor) = fixture();
         host.locked.store(true, Ordering::SeqCst);
         host.fail_events.store(true, Ordering::SeqCst);
         monitor.capture_now().unwrap();
         host.fail_events.store(false, Ordering::SeqCst);
         monitor.capture_now().unwrap();
-        assert!(monitor.status().unwrap().audit_error.is_some());
+        assert!(monitor.status().unwrap().audit_error.is_none());
         host.locked.store(false, Ordering::SeqCst);
         monitor.capture_now().unwrap();
         assert!(monitor.status().unwrap().audit_error.is_none());
     }
 
     #[test]
-    fn startup_settings_and_scheduled_capture_include_runtime_context() {
+    fn startup_settings_and_shutdown_do_not_write_events() {
         let (_dir, host, monitor) = fixture();
         monitor
             .save_settings(Settings {
@@ -735,19 +732,15 @@ mod tests {
         monitor
             .capture(&mut monitor.lock().unwrap(), "定时")
             .unwrap();
+        monitor.shutdown();
         let events = host.events.lock().unwrap();
-        let startup = &events[0];
-        assert_eq!(startup.kind, "startup");
-        assert!(startup.message.contains("生效配置：保留 30 天"));
-        assert!(!startup.message.contains("截图间隔"));
-        assert!(startup.message.contains("客户端版本：test-1.2.3"));
-        let changed = events.iter().find(|e| e.kind == "settings").unwrap();
-        assert!(changed.message.contains("修改前：保留 30 天"));
-        assert!(changed.message.contains("修改后：保留 30 天"));
-        assert!(!changed.message.contains("截图间隔"));
+        assert_eq!(events.len(), 1);
         let captured = events.iter().find(|e| e.kind == "captured").unwrap();
         assert!(captured.message.contains("触发方式：定时"));
         assert!(!captured.message.contains("截图间隔"));
+        assert!(!events
+            .iter()
+            .any(|e| matches!(e.kind.as_str(), "startup" | "shutdown" | "settings")));
         assert!(events
             .iter()
             .all(|e| e.message.contains(&monitor.event_context)));
@@ -762,9 +755,7 @@ mod tests {
         assert!(error.contains("阶段：创建截图目录"));
         let events = host.events.lock().unwrap();
         assert!(!events.iter().any(|e| e.kind == "captured"));
-        let failed = events.iter().find(|e| e.kind == "capture_error").unwrap();
-        assert!(failed.message.contains("阶段：创建截图目录"));
-        assert!(failed.message.contains(&dir.path().display().to_string()));
+        assert!(events.is_empty());
     }
 
     #[test]
@@ -996,9 +987,7 @@ mod tests {
         assert!(monitor.lock().unwrap().last_error.is_some());
         let events = host.events.lock().unwrap();
         assert!(!events.iter().any(|e| e.kind == "captured"));
-        assert!(events.iter().any(|e| e.kind == "capture_error"
-            && e.message.contains("阶段：写入索引")
-            && e.message.contains("captures.jsonl")));
+        assert!(events.is_empty());
     }
 
     #[test]

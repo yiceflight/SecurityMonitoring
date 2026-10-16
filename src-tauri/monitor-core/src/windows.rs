@@ -207,7 +207,6 @@ try {{
     }} else {{
         New-EventLog -LogName $log -Source $source
     }}
-    Write-EventLog -LogName $log -Source $source -EventId {EVENT_ID} -EntryType Information -Message 'SecurityMonitoring System event source registered'
     exit 0
 }} catch {{
     exit 1
@@ -260,7 +259,6 @@ try {{
 const APP_NAME: &str = "SecurityMonitoring";
 const EVENT_LOG_NAME: &str = "System";
 const EVENT_SOURCE_NAME: &str = "SecurityMonitoring";
-const EVENT_ID: u32 = 1000;
 const RUN_KEY: &str = "Software\\Microsoft\\Windows\\CurrentVersion\\Run";
 
 fn wides(value: &str) -> Vec<u16> {
