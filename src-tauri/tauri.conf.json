@@ -30,6 +30,10 @@
     "publisher": "安全监控",
     "targets": ["nsis", "msi"],
     "windows": {
+      "webviewInstallMode": {
+        "type": "offlineInstaller",
+        "silent": true
+      },
       "wix": {
         "language": "zh-CN"
       }

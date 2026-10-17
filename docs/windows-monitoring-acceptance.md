@@ -4,13 +4,18 @@
 
 ## 旧系统统一安装包验收
 
-当发布 `installer/SecurityMonitoring.nsi` 生成的统一安装包时，安装目录必须同时
-包含 `SecurityMonitoring.exe`、`SecurityMonitoringLegacy.exe` 和
-`SecurityMonitoringModern.exe`。启动器必须按真实系统版本选择客户端：XP SP3、
-Windows 7、Windows 8/8.1 进入 Legacy，64 位 Windows 10/11 进入 Modern，32 位
-Windows 10 继续进入 Legacy。旧系统验收不能通过在新系统上启动 Legacy 文件替代。
+当发布 `installer/SecurityMonitoring.nsi` 生成的统一安装包时，安装包输入必须同时
+包含 `SecurityMonitoring.exe`、`SecurityMonitoringLegacy.exe`、
+`SecurityMonitoringModern.exe` 和 `MicrosoftEdgeWebView2RuntimeInstallerX64.exe`；安装时
+只在 Win10/11 执行该运行时，完成后删除临时安装文件。
+启动器必须按真实系统版本选择客户端：XP SP3 x86、Windows 7、Windows 8/8.1 以及低于
+Windows 10 1803（build 17134）的系统进入 Legacy，64 位 Windows 10 1803+/11 进入
+Modern，32 位 Windows 10 继续进入 Legacy。旧系统验收不能通过在新系统上启动 Legacy
+文件替代。
 
-Legacy 的数据根目录必须与 Modern 一致，均为 `%APPDATA%\com.securitymonitoring.app`。
+Legacy 的配置根目录必须与 Modern 一致，均为 `%APPDATA%\com.securitymonitoring.app`；
+截图还会按固定盘符轮询写入其他固定盘的 `SecurityMonitoring\records`，不能写入 U 盘、
+移动硬盘、光驱或网络盘。
 在 Modern 上采集至少一条记录后切换到 Win7/Win8，Legacy 应能读取相同日期目录；在
 Legacy 上采集后切换回 Win10/11，Modern 的回放页面应能读取 JPEG 和 JSONL。Legacy
 还必须验证：GDI 全虚拟桌面截图、JPEG 可打开、启停状态持久化、锁屏跳过、登录启动、
@@ -22,16 +27,21 @@ Legacy 上采集后切换回 Win10/11，Modern 的回放页面应能读取 JPEG 
 | --- | --- | --- |
 | `pnpm test`（2026-10-13） | 17 项通过 | 设置弹窗启停确认、保存失败与重试、右上角状态与底部时间轴、跨日期拖动、空白时段提示、快速拖动防串图、图片重试与放大、无记录与单张记录、状态读取失败与恢复、取消日志源授权、隐藏设置、非 Windows 及浏览器预览；独立日志间隔及日志开关已移除；原生调用使用测试替身 |
 | `pnpm build` | 通过 | TypeScript 检查与生产前端构建 |
-| `cargo test --manifest-path src-tauri/monitor-core/Cargo.toml` | 24 项通过 | 启停持久化、锁屏跳过、存储与审计失败、启动项回滚、保留清理、记录恢复、重复调度防护、逐次截图详细日志、MD5 与保存字节一致及旧索引兼容、触发方式、仅持久化截图与删除事件、逐张删除原因、无本地审计回退、旧配置兼容、跨日期完整回放索引及真实时间排序；系统接口使用测试替身 |
-| Windows MSVC 目标 `cargo check` | 通过 | 完整 Tauri 应用及 Windows API 实现的编译检查；未链接或运行 Windows 安装包 |
+| `cargo test --manifest-path src-tauri/monitor-core/Cargo.toml` | 25 项通过 | 启停持久化、锁屏跳过、存储与审计失败、启动项回滚、保留清理、记录恢复、重复调度防护、逐次截图详细日志、MD5 与保存字节一致及旧索引兼容、触发方式、仅持久化截图与删除事件、逐张删除原因、无本地审计回退、旧配置兼容、跨日期完整回放索引与真实时间排序、多盘轮询；系统接口使用测试替身 |
+| `monitor-core` Windows MSVC 目标 `cargo check` | 通过 | Rust 核心与 Windows API 实现的交叉编译检查；未链接或运行 Windows 安装包 |
+| WebView2 离线安装包 | 待 Windows 构建验证 | Tauri NSIS/MSI 与统一安装包均包含 WebView2 离线安装器；构建机无网络时使用预置文件，不在目标机联网 |
 
 浏览器使用明确标注的模拟数据验证了跨日期拖动、空白时段提示、放大查看，以及 1080×760 和 720×560 窗口布局；最小窗口无横向或纵向溢出。浏览器模拟数据不代表原生截图采集或真实记录回放验收。
 
-上述检查在当前开发机执行，不能据此将下方 Windows 实机结果改为通过。
+上述检查在当前开发机执行；当前 macOS 没有 Windows 资源编译器、CMake、MSVC 或 NSIS，不能据此将下方 Windows 实机结果改为通过。
 
 ## 构建与安装
 
-在 Windows 10/11 开发机安装 Node、pnpm、Rust MSVC、Visual Studio C++ Build Tools、Windows SDK 和 WebView2。
+在 Windows 10/11 开发机安装 Node、pnpm、Rust MSVC、Visual Studio C++ Build Tools、Windows SDK、
+NSIS 和 CMake。现代客户端构建需要 WebView2 离线安装器；首次构建通常由 Tauri 在构建机联网下载。
+统一安装器脚本要求预先提供真正的 Evergreen Standalone x64 文件
+`MicrosoftEdgeWebView2RuntimeInstallerX64.exe`（不能使用联网 bootstrapper），并设置
+`SECURITY_MONITORING_WEBVIEW2_OFFLINE_INSTALLER` 或传入 `-WebView2OfflineInstaller`。
 
 ```powershell
 pnpm install --frozen-lockfile
@@ -55,6 +65,7 @@ pnpm desktop:build
 | 回放图片与窗口 | 快速来回拖动，在正常及最小窗口尺寸查看；点击放大、原始尺寸，按 Escape 关闭 | 无错图、旧图配新时间或横向溢出；日期时间与截图一致，原始尺寸可滚动查看，多显示器长图完整展示 | 待 Windows 验证 |
 | 回放异常与刷新 | 查看空记录、单张记录；在隔离测试目录移走当前 JPEG；采集新截图后刷新 | 无记录提示清楚，单张不出现可拖动的虚假时间范围；缺图提示并可重试，刷新显示新增的最新截图 | 待 Windows 验证 |
 | 定时截图 | 在设置弹窗中将间隔设为 1 秒并开始，等待至少 3 次；到记录目录核对文件；再保存 7200 秒并重新打开设置 | 开始时立即截图，之后间隔采集，记录时间、前台程序及空闲秒数正确；大于 3600 秒的间隔正常保存并回显 | 待 Windows 验证 |
+| 多盘截图分布 | 准备两个以上本地固定盘符，插入 U 盘或移动硬盘后开始监控，连续采集至少 6 张 | 设置弹窗列出应用数据盘及其他固定盘记录目录；截图按固定盘符顺序轮询分布且各盘数量接近；U 盘、移动硬盘、光驱和网络盘没有新文件；拔出非系统固定盘后后续截图仍能保存到可用固定盘 | 待 Windows 验证 |
 | 停止 | 在设置弹窗中点击停止，等待超过两次间隔 | 主页面显示监控已停止，确认停止后没有新后台截图 | 待 Windows 验证 |
 | 多显示器 | 两个显示器分别显示测试窗口，设置不同缩放和负坐标布局 | JPEG 含完整虚拟桌面，尺寸正确，无裁切、颜色交换或上下颠倒 | 待 Windows 验证 |
 | 锁屏恢复 | 运行中 Win+L，等待两个间隔，再解锁 | 锁屏期间跳过，不记录成功；解锁后恢复且不重复快速补采；暂停与恢复只更新客户端状态，不写系统事件 | 待 Windows 验证 |

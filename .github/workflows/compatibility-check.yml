@@ -125,6 +125,23 @@ jobs:
       - name: Build modern client
         run: pnpm desktop:build
 
+      - name: Locate cached WebView2 standalone installer
+        shell: pwsh
+        run: |
+          $roots = @(
+            (Join-Path $env:LOCALAPPDATA 'tauri'),
+            (Join-Path $env:GITHUB_WORKSPACE 'src-tauri\target')
+          ) | Where-Object { Test-Path $_ }
+          $runtime = $roots |
+            ForEach-Object { Get-ChildItem -Path $_ -Recurse -File -Filter 'MicrosoftEdgeWebView2RuntimeInstallerX64.exe' -ErrorAction SilentlyContinue } |
+            Where-Object { $_.Length -ge 50MB } |
+            Sort-Object LastWriteTime -Descending |
+            Select-Object -First 1
+          if (-not $runtime) {
+            throw 'Tauri 未找到 WebView2 Evergreen Standalone x64 缓存文件。请检查 desktop:build 是否使用 offlineInstaller。'
+          }
+          "SECURITY_MONITORING_WEBVIEW2_OFFLINE_INSTALLER=$($runtime.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
       - name: Build Legacy client and unified installer
         shell: pwsh
         run: .\scripts\build-unified-installer.ps1

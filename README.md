@@ -6,11 +6,12 @@
 
 已实现 Windows 原生截屏、Rust 后台定时调度、当前用户登录后自动启动、截图与使用记录保存和 Windows 事件日志。主页面展示历史截图与底部时间轴，监控状态常驻右上角。无需选择日期或输入时间，直接拖动时间轴查看本机保留的历史截图。首次运行默认停止监控，在设置弹窗中点击“开始监控”才会开始定时采集。
 
-默认每 60 秒截屏，保留最近 30 个自然日。监控会将所有显示器的虚拟桌面合成一张 JPEG，同时保存截图时间、尺寸、前台程序名、窗口标题和键鼠空闲秒数。状态包括正在监控、已停止、等待解锁和采集失败；失败后按设定间隔重试。锁屏、UAC 安全桌面或断开用户会话时跳过截图，恢复交互桌面后自动继续。截图空间设置不设固定上限；记录所在磁盘剩余空间降至 100 MB 或更少时，优先删除最早的截图后继续采集。
+默认每 60 秒截屏，保留最近 30 个自然日。监控会将所有显示器的虚拟桌面合成一张 JPEG，同时保存截图时间、尺寸、前台程序名、窗口标题和键鼠空闲秒数。Windows 客户端启动时会枚举本机固定磁盘（`DRIVE_FIXED`），按盘符顺序轮询写入截图；当前用户应用数据目录所在盘保留原路径，其他固定盘使用盘符根目录下的 `SecurityMonitoring\records`。可移动 U 盘、移动硬盘、光驱和网络盘不会加入写入列表。状态包括正在监控、已停止、等待解锁和采集失败；失败后按设定间隔重试。锁屏、UAC 安全桌面或断开用户会话时跳过截图，恢复交互桌面后自动继续。截图空间设置不设固定上限；某个记录磁盘剩余空间降至 100 MB 或更少时，只清理该盘上最早的截图后继续采集。
 
 关闭窗口会退出客户端并结束采集；下次启动恢复用户最后一次明确选择的启停状态。客户端不创建系统托盘图标，监控启停和记录目录操作只能在监控设置中进行。再次运行只唤起已有客户端。
 
-本轮已通过前端构建、核心逻辑测试和完整 Windows 目标编译检查。真实 Windows 上的截图、登录启动、事件查看器和安装包验收仍须按 [Windows 验收说明](docs/windows-monitoring-acceptance.md) 执行。
+本轮已通过前端构建、核心逻辑测试和 `monitor-core` 的 Windows MSVC 目标编译检查。完整 Tauri Windows
+链接、真实 Windows 上的截图、登录启动、事件查看器和安装包验收仍须按 [Windows 验收说明](docs/windows-monitoring-acceptance.md) 执行。
 
 ## 旧系统统一安装包
 
@@ -21,17 +22,19 @@ Tauri 生成的安装包。项目现在提供一个统一安装包方案：
 SecurityMonitoringSetup.exe
 └─ SecurityMonitoring.exe          系统版本启动器（XP 兼容的 Win32 x86）
    ├─ SecurityMonitoringLegacy.exe XP/Win7/Win8 原生兼容客户端
-   └─ SecurityMonitoringModern.exe Win10/Win11 Tauri 客户端
+   └─ SecurityMonitoringModern.exe Win10 1803+/Win11 Tauri 客户端
 ```
 
-启动器通过 `RtlGetVersion` 判断真实 Windows 版本。XP、Win7、Win8/8.1
-启动 `SecurityMonitoringLegacy.exe`；64 位 Win10/11 启动当前 Tauri 客户端，32 位
-Windows 10 继续使用 Legacy。两个
-客户端共用 `%APPDATA%\com.securitymonitoring.app` 下的 `settings.json`、
-`records\YYYY-MM-DD\captures.jsonl` 和 JPEG 文件，升级时保留历史记录。
+启动器通过 `RtlGetVersion` 判断真实 Windows 版本。XP、Win7、Win8/8.1 以及低于
+Windows 10 1803（build 17134）的系统启动 `SecurityMonitoringLegacy.exe`；64 位
+Windows 10 1803+/11 启动当前 Tauri 客户端，32 位 Windows 10 继续使用 Legacy。两个客户端共用 `%APPDATA%\com.securitymonitoring.app`
+下的 `settings.json` 和记录格式；截图记录还会按固定盘符轮询写入其他固定盘的
+`SecurityMonitoring\records`，升级时保留历史记录。
 
-Legacy 客户端是 32 位 Win32 程序，不依赖 WebView2、Node.js、.NET 或
-PowerShell；使用 GDI 截图、GDI+ JPEG 编码、注册表登录启动和 Windows 事件日志。
+Legacy 客户端是 32 位 Win32 程序，不依赖 WebView2、Node.js、.NET、PowerShell
+或 Visual C++ Redistributable；使用 GDI 截图、GDI+ JPEG 编码、注册表登录启动和
+Windows 事件日志。统一安装包会同时携带 WebView2 x64 离线安装器，只有 Win10/11
+安装时执行；XP、Win7、Win8/8.1 不执行它。
 它读取当前设置中的监控间隔、启停状态和登录启动选项，保存前台窗口、进程、空闲秒数、
 JPEG 字节数和 MD5。现代系统继续使用当前 Tauri 界面和 Rust `monitor-core`。
 
@@ -42,8 +45,17 @@ pnpm desktop:build
 pnpm installer:build
 ```
 
-构建机需要 Visual Studio 的 v141 XP 工具集、CMake 和 NSIS。Legacy 目标固定为
-Win32/x86，链接子系统版本 5.01；必须在 XP SP3、Win7 SP1、Win8.1、Win10/11
+`pnpm desktop:build` 使用 Tauri 的 `offlineInstaller` 模式，将约 127 MB 的 WebView2
+离线安装器放进现代 NSIS/MSI；首次构建通常需要构建机联网下载该文件。统一安装器脚本
+不会自动下载可能只是联网 bootstrapper 的文件，必须预先准备真正的
+`MicrosoftEdgeWebView2RuntimeInstallerX64.exe`，并通过 `-WebView2OfflineInstaller` 或
+`SECURITY_MONITORING_WEBVIEW2_OFFLINE_INSTALLER` 指定路径。统一安装包也会把同一文件打进去；
+发布给无网络用户时只需分发最终安装包。离线文件从 Microsoft 的
+[WebView2 Runtime 下载页](https://developer.microsoft.com/en-us/microsoft-edge/webview2)选择
+Evergreen Standalone Installer 的 x64 版本。
+
+构建机需要 Visual Studio 的 v141 XP 工具集、CMake、NSIS 和 WebView2 离线安装器。Legacy 目标固定为
+Win32/x86，链接子系统版本 5.01；当前支持基线是 XP SP3 x86、Win7 SP1、Win8.1、Win10/11
 虚拟机分别安装和运行验收。当前 macOS 上的前端测试、Rust 测试和交叉编译不能替代
 这些系统实机验收。
 
@@ -65,7 +77,7 @@ Windows 事件日志只记录两类事件：截图成功和截图删除，写入
 
 ## 本地存储
 
-数据根目录为 Tauri 的当前用户应用数据目录（Windows 通常为 `%APPDATA%\\com.securitymonitoring.app`），设置弹窗显示实际路径。配置使用原子替换，记录使用按日期分组的 JSONL 并同步落盘；启动时处理因崩溃中断的末尾记录，不将未写完的数据算作成功。数据仅在本机保存。
+配置根目录为 Tauri 的当前用户应用数据目录（Windows 通常为 `%APPDATA%\\com.securitymonitoring.app`）；截图记录会分布在该目录和其他固定盘的 `SecurityMonitoring` 目录中，设置弹窗显示实际使用的目录列表。配置使用原子替换，记录使用按日期分组的 JSONL 并同步落盘；启动时处理因崩溃中断的末尾记录，不将未写完的数据算作成功。数据仅在本机保存。
 
 ```text
 settings.json                   监控与启动设置

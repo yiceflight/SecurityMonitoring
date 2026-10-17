@@ -28,7 +28,12 @@ bool LegacySystem() {
     } else if (!GetVersionExW(reinterpret_cast<OSVERSIONINFOW*>(&version))) {
         return true;
     }
-    if (version.dwMajorVersion < 10) return true;
+    // WebView2/Tauri's supported Windows 10 baseline starts at 1803
+    // (build 17134). Keep older 64-bit Windows 10 builds on Legacy too.
+    if (version.dwMajorVersion < 10 ||
+        (version.dwMajorVersion == 10 && version.dwBuildNumber < 17134)) {
+        return true;
+    }
     // The bundled modern binary is x64. Keep 32-bit Windows on the x86
     // compatibility client so Windows 10 x86 is covered as well.
     SYSTEM_INFO system = {0};

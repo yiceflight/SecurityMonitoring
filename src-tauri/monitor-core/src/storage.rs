@@ -6,6 +6,7 @@ use std::{
     fs::{self, File, OpenOptions},
     io::{BufRead, BufReader, Write},
     path::{Path, PathBuf},
+    sync::Mutex,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -77,6 +78,8 @@ pub struct RecordPage {
 
 pub struct Storage {
     pub root: PathBuf,
+    roots: Vec<PathBuf>,
+    next_root: Mutex<usize>,
 }
 
 /// Keep this much free space on the volume that contains the records.
@@ -84,8 +87,29 @@ pub const MIN_FREE_SPACE_BYTES: u64 = 100 * 1024 * 1024;
 
 impl Storage {
     pub fn new(root: PathBuf) -> Result<Self> {
-        fs::create_dir_all(root.join("records")).map_err(|e| format!("无法创建记录目录：{e}"))?;
-        Ok(Self { root })
+        let roots = storage_roots(&root);
+        let mut usable = Vec::with_capacity(roots.len());
+        for path in roots {
+            match fs::create_dir_all(path.join("records")) {
+                Ok(()) => usable.push(path),
+                Err(error) if path != root => {
+                    // A fixed drive can be present but unavailable to this user. Keep
+                    // monitoring on the primary application-data volume in that case.
+                    eprintln!("跳过不可写的截图磁盘：{}；{}", path.display(), error);
+                }
+                Err(error) => return Err(format!("无法创建记录目录：{error}")),
+            }
+        }
+        let next = if usable.len() > 1 {
+            total_jpegs(&usable).unwrap_or(0) % usable.len()
+        } else {
+            0
+        };
+        Ok(Self {
+            root: root.clone(),
+            roots: usable,
+            next_root: Mutex::new(next),
+        })
     }
 
     pub fn load_settings(&self) -> Result<Settings> {
@@ -114,38 +138,48 @@ impl Storage {
         )
     }
 
-    pub fn available_space_bytes(&self) -> Result<u64> {
-        #[cfg(windows)]
-        {
-            use std::{os::windows::ffi::OsStrExt, ptr};
-            use windows_sys::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
-
-            let path: Vec<u16> = self.root.as_os_str().encode_wide().chain(Some(0)).collect();
-            let mut available = 0u64;
-            let ok = unsafe {
-                GetDiskFreeSpaceExW(
-                    path.as_ptr(),
-                    &mut available,
-                    ptr::null_mut(),
-                    ptr::null_mut(),
-                )
-            };
-            if ok == 0 {
-                return Err(format!(
-                    "无法读取记录磁盘剩余空间：{}",
-                    std::io::Error::last_os_error()
-                ));
-            }
-            Ok(available)
-        }
-        #[cfg(not(windows))]
-        {
-            // Native capture is Windows-only. Tests and browser preview should
-            // not pretend that the host volume is low on space.
-            Ok(u64::MAX)
-        }
+    fn available_space_for(&self, root: &Path) -> Result<u64> {
+        available_space_bytes_at(root)
     }
 
+    fn choose_root(&self) -> Result<PathBuf> {
+        let mut next = self
+            .next_root
+            .lock()
+            .map_err(|_| "截图磁盘选择器发生异常，请重新启动客户端".to_string())?;
+        let root = self
+            .roots
+            .get(*next % self.roots.len())
+            .cloned()
+            .ok_or("没有可用的截图记录目录".to_string())?;
+        *next = (*next + 1) % self.roots.len();
+        Ok(root)
+    }
+
+    pub fn roots_description(&self) -> String {
+        self.roots
+            .iter()
+            .map(|root| root.display().to_string())
+            .collect::<Vec<_>>()
+            .join("；")
+    }
+
+    fn all_day_dirs(&self, date: &str) -> Result<Vec<PathBuf>> {
+        validate_date(date)?;
+        let mut dirs = Vec::new();
+        for root in &self.roots {
+            let path = root.join("records").join(date);
+            if path.is_symlink() {
+                return Err("记录日期目录不能是符号链接".into());
+            }
+            if path.is_dir() {
+                dirs.push(path);
+            }
+        }
+        Ok(dirs)
+    }
+
+    #[cfg(test)]
     fn day_dir(&self, date: &str) -> Result<PathBuf> {
         validate_date(date)?;
         let path = self.root.join("records").join(date);
@@ -156,9 +190,17 @@ impl Storage {
     }
 
     pub fn records(&self, date: &str, page: usize) -> Result<RecordPage> {
-        let mut records: Vec<CaptureRecord> =
-            read_lines(&self.day_dir(date)?.join("captures.jsonl"))?;
-        records.reverse();
+        let mut records = Vec::new();
+        for dir in self.all_day_dirs(date)? {
+            let mut local = read_lines::<CaptureRecord>(&dir.join("captures.jsonl"))?;
+            local.reverse();
+            records.extend(local);
+        }
+        records.sort_by(|a, b| {
+            b.captured_at
+                .cmp(&a.captured_at)
+                .then_with(|| b.id.cmp(&a.id))
+        });
         let total = records.len();
         let page_size = 20;
         let offset = page.saturating_sub(1).saturating_mul(page_size);
@@ -175,12 +217,13 @@ impl Storage {
     pub fn replay_records(&self) -> Result<Vec<CaptureRecord>> {
         let mut timed = Vec::new();
         for date in self.dates()? {
-            let records: Vec<CaptureRecord> =
-                read_lines(&self.day_dir(&date)?.join("captures.jsonl"))?;
-            for record in records {
-                let time = chrono::DateTime::parse_from_rfc3339(&record.captured_at)
-                    .map_err(|_| "截图时间无效，无法读取回放记录".to_string())?;
-                timed.push((time, record));
+            for dir in self.all_day_dirs(&date)? {
+                let records: Vec<CaptureRecord> = read_lines(&dir.join("captures.jsonl"))?;
+                for record in records {
+                    let time = chrono::DateTime::parse_from_rfc3339(&record.captured_at)
+                        .map_err(|_| "截图时间无效，无法读取回放记录".to_string())?;
+                    timed.push((time, record));
+                }
             }
         }
         timed.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.id.cmp(&b.1.id)));
@@ -200,11 +243,6 @@ impl Storage {
     pub fn save_capture(&self, captured: Captured) -> Result<CaptureRecord> {
         let now = Local::now();
         let date = now.format("%Y-%m-%d").to_string();
-        let dir = self
-            .day_dir(&date)
-            .map_err(|e| format!("阶段：准备截图目录；{e}"))?;
-        fs::create_dir_all(&dir)
-            .map_err(|e| format!("阶段：创建截图目录；路径：{}；{e}", dir.display()))?;
         let id = format!(
             "{}-{}",
             date,
@@ -213,35 +251,59 @@ impl Storage {
                 .map_err(|e| e.to_string())?
                 .as_nanos()
         );
+        let jpeg = captured.jpeg;
         let record = CaptureRecord {
             id: id.clone(),
             captured_at: now.to_rfc3339(),
             width: captured.width,
             height: captured.height,
-            bytes: captured.jpeg.len() as u64,
-            md5: Some(format!("{:x}", Md5::digest(&captured.jpeg))),
+            bytes: jpeg.len() as u64,
+            md5: Some(format!("{:x}", Md5::digest(&jpeg))),
             window_title: captured.window_title,
             process_name: captured.process_name,
             idle_seconds: captured.idle_seconds,
         };
-        let path = dir.join(format!("{id}.jpg"));
-        atomic_write(&path, &captured.jpeg)
-            .map_err(|e| format!("阶段：保存图片；路径：{}；{e}", path.display()))?;
-        let index = dir.join("captures.jsonl");
-        if let Err(error) = append_line(&index, &record) {
-            let rollback = fs::remove_file(&path);
-            return Err(format!(
-                "阶段：写入索引；路径：{}；截图编号：{}；{}{}",
-                index.display(),
-                record.id,
-                error,
-                rollback
-                    .err()
-                    .map(|e| format!("；图片回滚删除失败：{}；{e}", path.display()))
-                    .unwrap_or_default()
-            ));
+        let first = self.choose_root()?;
+        let mut roots = vec![first.clone()];
+        roots.extend(
+            self.roots
+                .iter()
+                .filter(|root| root.as_path() != first.as_path())
+                .cloned(),
+        );
+        let mut errors = Vec::new();
+        for root in roots {
+            let dir = root.join("records").join(&date);
+            if let Err(error) = fs::create_dir_all(&dir) {
+                errors.push(format!(
+                    "阶段：创建截图目录；路径：{}；{error}",
+                    dir.display()
+                ));
+                continue;
+            }
+            let path = dir.join(format!("{id}.jpg"));
+            if let Err(error) = atomic_write(&path, &jpeg) {
+                errors.push(format!("阶段：保存图片；路径：{}；{error}", path.display()));
+                continue;
+            }
+            let index = dir.join("captures.jsonl");
+            if let Err(error) = append_line(&index, &record) {
+                let rollback = fs::remove_file(&path);
+                errors.push(format!(
+                    "阶段：写入索引；路径：{}；截图编号：{}；{}{}",
+                    index.display(),
+                    record.id,
+                    error,
+                    rollback
+                        .err()
+                        .map(|e| format!("；图片回滚删除失败：{}；{e}", path.display()))
+                        .unwrap_or_default()
+                ));
+                continue;
+            }
+            return Ok(record);
         }
-        Ok(record)
+        Err(errors.join("；"))
     }
 
     pub fn image_path(&self, id: &str) -> Result<PathBuf> {
@@ -254,11 +316,13 @@ impl Storage {
         {
             return Err("无效的截图编号".into());
         }
-        let path = self.day_dir(date)?.join(format!("{id}.jpg"));
-        if path.is_symlink() || !path.is_file() {
-            return Err("截图已过期或文件不存在".into());
+        for root in &self.roots {
+            let path = root.join("records").join(date).join(format!("{id}.jpg"));
+            if !path.is_symlink() && path.is_file() {
+                return Ok(path);
+            }
         }
-        Ok(path)
+        Err("截图已过期或文件不存在".into())
     }
 
     pub fn image_data(&self, id: &str) -> Result<String> {
@@ -276,16 +340,22 @@ impl Storage {
 
     pub fn dates(&self) -> Result<Vec<String>> {
         let mut dates = Vec::new();
-        for entry in fs::read_dir(self.root.join("records")).map_err(|e| e.to_string())? {
-            let entry = entry.map_err(|e| e.to_string())?;
-            let name = entry.file_name().to_string_lossy().to_string();
-            if entry.file_type().map_err(|e| e.to_string())?.is_dir()
-                && validate_date(&name).is_ok()
-            {
-                dates.push(name);
+        for root in &self.roots {
+            let Ok(entries) = fs::read_dir(root.join("records")) else {
+                continue;
+            };
+            for entry in entries {
+                let entry = entry.map_err(|e| e.to_string())?;
+                let name = entry.file_name().to_string_lossy().to_string();
+                if entry.file_type().map_err(|e| e.to_string())?.is_dir()
+                    && validate_date(&name).is_ok()
+                {
+                    dates.push(name);
+                }
             }
         }
         dates.sort();
+        dates.dedup();
         Ok(dates)
     }
 
@@ -301,21 +371,23 @@ impl Storage {
             if validate_date(&date)? < cutoff {
                 // Report each successful image deletion immediately, even if a later
                 // deletion fails. Never follow symlinks outside an owned date directory.
-                for entry in fs::read_dir(self.day_dir(&date)?).map_err(|e| e.to_string())? {
-                    let entry = entry.map_err(|e| e.to_string())?;
-                    let path = entry.path();
-                    if path.extension().and_then(|v| v.to_str()) == Some("jpg")
-                        && entry.file_type().map_err(|e| e.to_string())?.is_file()
-                    {
-                        let bytes = entry.metadata().map_err(|e| e.to_string())?.len();
-                        fs::remove_file(&path)
-                            .map_err(|e| format!("清理过期截图失败：{}；{e}", path.display()))?;
-                        on_deleted(&path, bytes);
+                for dir in self.all_day_dirs(&date)? {
+                    for entry in fs::read_dir(&dir).map_err(|e| e.to_string())? {
+                        let entry = entry.map_err(|e| e.to_string())?;
+                        let path = entry.path();
+                        if path.extension().and_then(|v| v.to_str()) == Some("jpg")
+                            && entry.file_type().map_err(|e| e.to_string())?.is_file()
+                        {
+                            let bytes = entry.metadata().map_err(|e| e.to_string())?.len();
+                            fs::remove_file(&path).map_err(|e| {
+                                format!("清理过期截图失败：{}；{e}", path.display())
+                            })?;
+                            on_deleted(&path, bytes);
+                        }
                     }
+                    // Only date directories owned by this app; never follow symlinks.
+                    fs::remove_dir_all(&dir).map_err(|e| format!("清理过期记录失败：{e}"))?;
                 }
-                // Only date directories owned by this app; never follow symlinks.
-                fs::remove_dir_all(self.day_dir(&date)?)
-                    .map_err(|e| format!("清理过期记录失败：{e}"))?;
                 removed += 1;
             }
         }
@@ -334,27 +406,32 @@ impl Storage {
         let mut files = Vec::new();
         let mut total = 0u64;
         for date in self.dates()? {
-            let dir = self.day_dir(&date)?;
-            for entry in fs::read_dir(&dir).map_err(|e| e.to_string())? {
-                let entry = entry.map_err(|e| e.to_string())?;
-                let path = entry.path();
-                if path.extension().and_then(|v| v.to_str()) != Some("jpg")
-                    || path.is_symlink()
-                    || !path.is_file()
-                {
-                    continue;
+            for dir in self.all_day_dirs(&date)? {
+                for entry in fs::read_dir(&dir).map_err(|e| e.to_string())? {
+                    let entry = entry.map_err(|e| e.to_string())?;
+                    let path = entry.path();
+                    if path.extension().and_then(|v| v.to_str()) != Some("jpg")
+                        || path.is_symlink()
+                        || !path.is_file()
+                    {
+                        continue;
+                    }
+                    let bytes = entry.metadata().map_err(|e| e.to_string())?.len();
+                    total = total.saturating_add(bytes);
+                    files.push((date.clone(), path, bytes));
                 }
-                let bytes = entry.metadata().map_err(|e| e.to_string())?.len();
-                total = total.saturating_add(bytes);
-                files.push((date.clone(), path, bytes));
             }
         }
         if total <= limit {
             return Ok(0);
         }
-        files.sort_by(|a, b| a.1.cmp(&b.1));
+        files.sort_by(|a, b| {
+            a.1.file_name()
+                .cmp(&b.1.file_name())
+                .then_with(|| a.1.cmp(&b.1))
+        });
         let mut removed = 0;
-        for (date, path, bytes) in files {
+        for (_date, path, bytes) in files {
             if total <= limit {
                 break;
             }
@@ -366,7 +443,7 @@ impl Storage {
             fs::remove_file(&path)
                 .map_err(|e| format!("空间清理删除失败：{}；{e}", path.display()))?;
             on_deleted(&path, bytes, total, total.saturating_sub(bytes));
-            let index = self.day_dir(&date)?.join("captures.jsonl");
+            let index = path.parent().ok_or("截图目录无效")?.join("captures.jsonl");
             let records: Vec<CaptureRecord> = read_lines::<CaptureRecord>(&index)
                 .map_err(|e| format!("清理后读取索引失败：{}；{e}", index.display()))?
                 .into_iter()
@@ -389,13 +466,21 @@ impl Storage {
     ) -> Result<usize> {
         let mut removed = 0;
         loop {
-            let available = self.available_space_bytes()?;
-            if available > reserve_bytes {
+            let Some((volume_root, available)) = self
+                .roots
+                .iter()
+                .filter_map(|root| self.available_space_for(root).ok().map(|free| (root, free)))
+                .filter(|(_, free)| *free <= reserve_bytes)
+                .min_by_key(|(_, free)| *free)
+            else {
                 return Ok(removed);
-            }
+            };
             let mut files = Vec::new();
             for date in self.dates()? {
-                let dir = self.day_dir(&date)?;
+                let dir = volume_root.join("records").join(&date);
+                if !dir.is_dir() {
+                    continue;
+                }
                 for entry in fs::read_dir(&dir).map_err(|e| e.to_string())? {
                     let entry = entry.map_err(|e| e.to_string())?;
                     let path = entry.path();
@@ -409,7 +494,7 @@ impl Storage {
                 }
             }
             files.sort_by(|a, b| a.1.cmp(&b.1));
-            let Some((date, path, bytes)) = files.into_iter().next() else {
+            let Some((_date, path, bytes)) = files.into_iter().next() else {
                 return Ok(removed);
             };
             let id = path
@@ -419,9 +504,9 @@ impl Storage {
                 .to_string();
             fs::remove_file(&path)
                 .map_err(|e| format!("磁盘空间清理删除失败：{}；{e}", path.display()))?;
-            let after = self.available_space_bytes()?;
+            let after = self.available_space_for(volume_root)?;
             on_deleted(&path, bytes, available, after);
-            let index = self.day_dir(&date)?.join("captures.jsonl");
+            let index = path.parent().ok_or("截图目录无效")?.join("captures.jsonl");
             let records: Vec<CaptureRecord> = read_lines::<CaptureRecord>(&index)
                 .map_err(|e| format!("清理后读取索引失败：{}；{e}", index.display()))?
                 .into_iter()
@@ -432,6 +517,183 @@ impl Storage {
             removed += 1;
         }
     }
+}
+
+fn storage_roots(primary: &Path) -> Vec<PathBuf> {
+    let mut roots = Vec::new();
+    #[cfg(all(windows, not(test)))]
+    {
+        let mut primary_included = false;
+        for drive in fixed_drive_roots() {
+            let same_drive = drive_letter(primary)
+                .zip(drive_letter(&drive))
+                .map(|(left, right)| left.eq_ignore_ascii_case(&right))
+                .unwrap_or(false);
+            let candidate = if same_drive {
+                primary_included = true;
+                primary.to_owned()
+            } else {
+                drive.join("SecurityMonitoring")
+            };
+            if !roots.iter().any(|existing| existing == &candidate) {
+                roots.push(candidate);
+            }
+        }
+        if !primary_included {
+            roots.insert(0, primary.to_owned());
+        }
+        roots.sort_by_key(|path| drive_letter(path).unwrap_or('\0'));
+    }
+    if roots.is_empty() {
+        roots.push(primary.to_owned());
+    }
+    roots
+}
+
+#[cfg(windows)]
+fn drive_letter(path: &Path) -> Option<char> {
+    let text = path.to_string_lossy();
+    let mut chars = text.chars();
+    let letter = chars.next()?;
+    (chars.next() == Some(':')).then_some(letter)
+}
+
+#[cfg(windows)]
+fn fixed_drive_roots() -> Vec<PathBuf> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Storage::FileSystem::{GetDriveTypeW, GetLogicalDrives};
+    const DRIVE_FIXED: u32 = 3;
+    let mask = unsafe { GetLogicalDrives() };
+    let mut drives = Vec::new();
+    for index in 0..26u32 {
+        if mask & (1 << index) == 0 {
+            continue;
+        }
+        let letter = (b'A' + index as u8) as char;
+        let root = format!("{letter}:\\");
+        let wide: Vec<u16> = std::ffi::OsStr::new(&root)
+            .encode_wide()
+            .chain(Some(0))
+            .collect();
+        if unsafe { GetDriveTypeW(wide.as_ptr()) } == DRIVE_FIXED && !is_hotpluggable_drive(letter)
+        {
+            drives.push(PathBuf::from(root));
+        }
+    }
+    drives
+}
+
+#[cfg(windows)]
+fn is_hotpluggable_drive(letter: char) -> bool {
+    use std::{mem, os::windows::ffi::OsStrExt, ptr};
+    use windows_sys::Win32::{
+        Foundation::{CloseHandle, INVALID_HANDLE_VALUE},
+        Storage::FileSystem::{CreateFileW, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING},
+        System::{
+            Ioctl::{IOCTL_STORAGE_GET_HOTPLUG_INFO, STORAGE_HOTPLUG_INFO},
+            IO::DeviceIoControl,
+        },
+    };
+    let device = format!(r"\\.{letter}:");
+    let wide: Vec<u16> = std::ffi::OsStr::new(&device)
+        .encode_wide()
+        .chain(Some(0))
+        .collect();
+    let handle = unsafe {
+        CreateFileW(
+            wide.as_ptr(),
+            0,
+            FILE_SHARE_READ | FILE_SHARE_WRITE,
+            ptr::null(),
+            OPEN_EXISTING,
+            0,
+            ptr::null_mut(),
+        )
+    };
+    if handle == INVALID_HANDLE_VALUE {
+        // If the bus type cannot be checked, do not write to the volume.
+        return true;
+    }
+    let mut info = STORAGE_HOTPLUG_INFO {
+        Size: mem::size_of::<STORAGE_HOTPLUG_INFO>() as u32,
+        ..Default::default()
+    };
+    let mut returned = 0u32;
+    let ok = unsafe {
+        DeviceIoControl(
+            handle,
+            IOCTL_STORAGE_GET_HOTPLUG_INFO,
+            ptr::null(),
+            0,
+            &mut info as *mut _ as *mut _,
+            mem::size_of::<STORAGE_HOTPLUG_INFO>() as u32,
+            &mut returned,
+            ptr::null_mut(),
+        )
+    } != 0;
+    unsafe { CloseHandle(handle) };
+    !ok || info.MediaRemovable || info.MediaHotplug || info.DeviceHotplug
+}
+
+#[cfg(windows)]
+fn available_space_bytes_at(path: &Path) -> Result<u64> {
+    use std::{os::windows::ffi::OsStrExt, ptr};
+    use windows_sys::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
+    let wide: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
+    let mut available = 0u64;
+    let ok = unsafe {
+        GetDiskFreeSpaceExW(
+            wide.as_ptr(),
+            &mut available,
+            ptr::null_mut(),
+            ptr::null_mut(),
+        )
+    };
+    if ok == 0 {
+        return Err(format!(
+            "无法读取记录磁盘剩余空间：{}",
+            std::io::Error::last_os_error()
+        ));
+    }
+    Ok(available)
+}
+
+#[cfg(not(windows))]
+fn available_space_bytes_at(_: &Path) -> Result<u64> {
+    // Native capture is Windows-only. Tests and browser preview should not
+    // pretend that the host volume is low on space.
+    Ok(u64::MAX)
+}
+
+fn total_jpegs(roots: &[PathBuf]) -> Result<usize> {
+    let mut total = 0;
+    for root in roots {
+        let records = root.join("records");
+        if !records.is_dir() {
+            continue;
+        }
+        let Ok(dates) = fs::read_dir(records) else {
+            continue;
+        };
+        for date in dates {
+            let date = date.map_err(|e| e.to_string())?.path();
+            if !date.is_dir() {
+                continue;
+            }
+            let Ok(entries) = fs::read_dir(date) else {
+                continue;
+            };
+            for entry in entries {
+                let entry = entry.map_err(|e| e.to_string())?;
+                if entry.path().extension().and_then(|v| v.to_str()) == Some("jpg")
+                    && entry.file_type().map_err(|e| e.to_string())?.is_file()
+                {
+                    total += 1;
+                }
+            }
+        }
+    }
+    Ok(total)
 }
 
 pub fn today() -> String {
@@ -626,6 +888,34 @@ mod tests {
         assert_eq!(records[0].md5, None);
         assert_eq!(records[1].md5, record.md5);
         assert_eq!(reopened.replay_records().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn captures_round_robin_across_configured_storage_roots() {
+        let first = tempfile::tempdir().unwrap();
+        let second = tempfile::tempdir().unwrap();
+        let mut store = Storage::new(first.path().to_owned()).unwrap();
+        store.roots.push(second.path().to_owned());
+        fs::create_dir_all(second.path().join("records")).unwrap();
+        *store.next_root.lock().unwrap() = 0;
+
+        for value in 0..4u8 {
+            store
+                .save_capture(Captured {
+                    jpeg: vec![value],
+                    width: 1,
+                    height: 1,
+                    window_title: String::new(),
+                    process_name: String::new(),
+                    idle_seconds: 0,
+                })
+                .unwrap();
+        }
+
+        let first_count = total_jpegs(&[first.path().to_owned()]).unwrap();
+        let second_count = total_jpegs(&[second.path().to_owned()]).unwrap();
+        assert_eq!((first_count, second_count), (2, 2));
+        assert_eq!(store.replay_records().unwrap().len(), 4);
     }
 
     #[test]

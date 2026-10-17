@@ -94,7 +94,7 @@ impl Monitor {
             let message = format!(
                 "客户端启动\n启动模式：{}\n生效配置：{}\n记录目录：{}\n配置读取错误：{}\n登录启动同步错误：{}",
                 if std::env::args().any(|arg| arg == "--background") { "后台启动" } else { "普通启动" },
-                settings_summary(&rt.settings), rt.storage.root.display(),
+                settings_summary(&rt.settings), rt.storage.roots_description(),
                 rt.last_error.as_deref().unwrap_or("无"), rt.auto_start_error.as_deref().unwrap_or("无")
             );
             monitor.audit(&mut rt, "startup", &message);
@@ -173,7 +173,7 @@ impl Monitor {
             supported,
             settings: rt.settings.clone(),
             state: state.into(),
-            storage_path: rt.storage.root.display().to_string(),
+            storage_path: rt.storage.roots_description(),
             today_count: rt.today_count,
             last_capture: rt.last_capture.clone(),
             last_error: if errors.is_empty() {
@@ -384,7 +384,7 @@ impl Monitor {
             "截图失败\n触发方式：{}\n连续失败次数：{}\n记录目录：{}\n错误详情：{}",
             trigger,
             rt.consecutive_failures,
-            rt.storage.root.display(),
+            rt.storage.roots_description(),
             error
         );
         rt.last_error = Some(error.clone());
@@ -479,7 +479,7 @@ impl Monitor {
                     "cleanup_error",
                     &format!(
                         "清理失败\n记录目录：{}\n错误详情：{}",
-                        rt.storage.root.display(),
+                        rt.storage.roots_description(),
                         error
                     ),
                 ) {

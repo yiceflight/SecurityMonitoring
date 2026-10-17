@@ -8,6 +8,7 @@
 #define PSAPI_VERSION 1
 #include <psapi.h>
 #include <wincrypt.h>
+#include <winioctl.h>
 #include <shellapi.h>
 #include <shlobj.h>
 #include <strsafe.h>
@@ -54,6 +55,8 @@ HWND g_autoStart = NULL;
 HANDLE g_mutex = NULL;
 ULONG_PTR g_gdiplusToken = 0;
 std::wstring g_root;
+std::vector<std::wstring> g_storageRoots;
+size_t g_nextStorageRoot = 0;
 Settings g_settings;
 bool g_running = false;
 
@@ -69,6 +72,46 @@ std::wstring AppDataRoot() {
         return L".";
     }
     return Join(path, L"com.securitymonitoring.app");
+}
+
+bool EnsureDirectory(const std::wstring& path);
+
+bool IsHotpluggableDrive(wchar_t letter) {
+    wchar_t device[8] = {L'\\', L'\\', L'.', L'\\', letter, L':', L'\0'};
+    HANDLE handle = CreateFileW(device, 0, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL);
+    if (handle == INVALID_HANDLE_VALUE) return true;
+    STORAGE_HOTPLUG_INFO info = {0};
+    info.Size = sizeof(info);
+    DWORD returned = 0;
+    const BOOL ok = DeviceIoControl(handle, IOCTL_STORAGE_GET_HOTPLUG_INFO, NULL, 0,
+        &info, sizeof(info), &returned, NULL);
+    CloseHandle(handle);
+    return !ok || info.MediaRemovable || info.MediaHotplug || info.DeviceHotplug;
+}
+
+void DiscoverStorageRoots() {
+    g_storageRoots.clear();
+    const UINT drives = GetLogicalDrives();
+    const std::wstring primary = g_root.size() >= 2 ? g_root.substr(0, 2) : L"";
+    bool primaryAdded = false;
+    for (UINT index = 0; index < 26; ++index) {
+        if ((drives & (1u << index)) == 0) continue;
+        wchar_t letter = static_cast<wchar_t>(L'A' + index);
+        wchar_t drive[4] = {letter, L':', L'\\', L'\0'};
+        if (GetDriveTypeW(drive) != DRIVE_FIXED || IsHotpluggableDrive(letter)) continue;
+        const bool sameDrive = _wcsnicmp(primary.c_str(), drive, 2) == 0;
+        const std::wstring candidate = sameDrive ? g_root : Join(drive, L"SecurityMonitoring");
+        if (EnsureDirectory(Join(candidate, L"records"))) g_storageRoots.push_back(candidate);
+        if (sameDrive) primaryAdded = true;
+    }
+    if (!primaryAdded) g_storageRoots.insert(g_storageRoots.begin(), g_root);
+}
+
+std::wstring NextStorageRoot() {
+    if (g_storageRoots.empty()) return g_root;
+    const std::wstring root = g_storageRoots[g_nextStorageRoot % g_storageRoots.size()];
+    ++g_nextStorageRoot;
+    return root;
 }
 
 bool EnsureDirectory(const std::wstring& path) {
@@ -298,8 +341,16 @@ bool CaptureScreen(std::wstring* savedPath) {
     if (!InputDesktopAvailable()) {
         DeleteObject(bitmap); DeleteDC(memory); ReleaseDC(NULL, screen); return false;
     }
-    const std::wstring day = Join(Join(g_root, L"records"), DateName());
-    if (!EnsureDirectory(day)) {
+    std::wstring day;
+    const size_t attempts = g_storageRoots.empty() ? 1 : g_storageRoots.size();
+    for (size_t attempt = 0; attempt < attempts; ++attempt) {
+        const std::wstring candidate = Join(Join(NextStorageRoot(), L"records"), DateName());
+        if (EnsureDirectory(candidate)) {
+            day = candidate;
+            break;
+        }
+    }
+    if (day.empty()) {
         DeleteObject(bitmap); DeleteDC(memory); ReleaseDC(NULL, screen); return false;
     }
     const std::wstring id = FileId();
@@ -451,6 +502,7 @@ int RunLegacy(HINSTANCE instance, int show) {
     g_instance = instance;
     g_root = AppDataRoot();
     EnsureDirectory(Join(g_root, L"records"));
+    DiscoverStorageRoots();
     LoadSettings();
     InstallAutoStart(g_settings.autoStart);
     WNDCLASSW wc = {0};
